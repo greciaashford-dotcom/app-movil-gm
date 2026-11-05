@@ -1,0 +1,92 @@
+{
+  "summary": "First full pass. Backend: 25/26 pytest pass; 1 HIGH profitability bug: after unmarking a material purchase the obra cost still counts it (auth+role guards, solicitudes idempotency/mine/lookup, presupuesto→aceptar→convertir-obra→material purchase→mano obra→cobro with numero_factura and beneficio recalculation, PERSONAL_HOGAR+obra_id 422, EMPRESA vs HOGAR resumen, gestoría + CSV token/401, ferreterías derivación cobrada→Comisiones INGRESO, publicidad, store /me + anuncios incl. fecha_fin '' clearing, worker obras/avance/fotos/403, configuración + probar-email 422). Frontend (375x667 web preview): all requested flows PASS — client tabs, 4-step request form → confirmation → Mis solicitudes, drawer role switch with wrong/right PIN and back to Cliente, Trabajador panel (progress 75%, phases, Cómo llegar), Ferretería panel (create/toggle/edit/delete promo, edit store info), Admin Ferreterías (KPIs, Derivar sheet, cobrada toggle, new-store sheet), Configuración (Resend Activo, CIF save persisted after reload, simulation switch), and all other admin screens load with no console errors. Only minor UI truncation issues and some code-review notes. No deprecated Expo packages found (no expo-av / expo-barcode-scanner / expo-background-fetch); no SafeAreaView imported from react-native.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/admin/obras/{id}/materiales/{mat_id} {comprado:false}",
+        "issue": "Unmarking a purchased material (purchase-unmark-button) deletes the EMPRESA GASTO transaction, but Obra.recalcular (core.py:239-241) still adds cantidad*precio_real for materials with comprado=false. coste_materiales_real/beneficio_neto then stay wrong (24 instead of 0 in the test) and no longer match Finanzas. Fix: only sum materials where m.comprado and precio_real is not None, or clear precio_real when unmarking (MaterialPatch exclude_none means the API cannot clear it).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "The lockout key uses the FIRST entry of X-Forwarded-For, and the client can set that value itself. Rotating the header could get around the 5-attempt lockout, so a 4-digit PIN could be brute-forced. Use the right-most trusted proxy entry or the ingress-provided real IP instead. This is from code review only; I did not brute-force it, as instructed."
+      },
+      {
+        "endpoint": "PATCH /api/admin/ferreterias/{id}/derivaciones/{d_id} (cobrada→pendiente) and DELETE /api/admin/movimientos/{id} for origen=cobro/comision/publicidad",
+        "issue": "These delete INGRESO transactions that already used a numero_factura (F-YYYY-NNNN). That leaves gaps in the invoice numbering, which Spanish invoicing rules require to be consecutive. Consider cancelling them with a corrective entry instead of hard-deleting, or blocking the delete once a number is assigned."
+      },
+      {
+        "endpoint": "POST /api/upload",
+        "issue": "Anonymous upload accepts any bytes declared as image/png; a non-image body returned 200. Validate magic bytes (e.g. with Pillow) and consider rate-limiting the anonymous endpoint."
+      },
+      {
+        "endpoint": "GET /api/admin/gestoria/export.csv?t=<JWT>",
+        "issue": "The admin JWT is sent in the query string, so it can end up in proxy/access logs and browser history. Use a short-lived, single-use download token instead."
+      },
+      {
+        "endpoint": "Solicitudes / presupuestos / obras / derivaciones",
+        "issue": "There is no DELETE or archive endpoint, so test or incorrect records cannot be removed from the admin UI (see seed_data_creation)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "KpiCard (src/ui/kit.tsx:317)",
+        "issue": "On web the 3-column KPI values are cut off ('2.20…', '1.03…' on Finanzas Personal/Hogar) because adjustsFontSizeToFit does nothing on react-native-web. Use a smaller font for long values or a 2-column layout.",
+        "testID": "finance-kpi-income / finance-kpi-expenses",
+        "priority": "low"
+      },
+      {
+        "component": "PillButton labels (numberOfLines=1)",
+        "issue": "Some labels are cut off at 375px: 'Llamar cli…' (worker-job-call-client-button), 'Derivar cli…' and a clipped conditions button (admin-store-referral-*, partly covered by the 'Nueva' FAB), 'Enviar por …' (quote-send-email-button). Shorten the labels or stack the buttons.",
+        "testID": "worker-job-call-client-button, admin-store-referral-*, quote-send-email-button",
+        "priority": "low"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "admin/ferreterias",
+        "issues": [
+          "The 'Nueva' FAB covers the second action button of the first store card; add bottom padding or move the FAB."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gmconecta_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "HIGH: core.py Obra.recalcular must only count materials with comprado=True; after the fix, re-run tests/test_gmconecta_api.py::TestPresupuestoObra (it asserts coste_materiales_real==0 after unmarking).",
+    "Fix the X-Forwarded-For based login lockout so it cannot be bypassed (server.py:344).",
+    "Stop hard-deleting INGRESO transactions that already have a numero_factura (admin_routes.py:942-944, movimientos DELETE); keep invoice numbering consecutive.",
+    "Validate the content of uploaded images (magic bytes) on POST /api/upload.",
+    "Fix cut-off button labels and KPI values on the 375px web preview; move or pad the FAB on /admin/ferreterias.",
+    "Optional: add archive/delete for solicitudes, presupuestos, obras and derivaciones.",
+    "Code size: admin_routes.py has 1062 lines (>700); split it into modules (presupuestos/obras/finanzas/ferreterias/config)."
+  ],
+  "critical_code_review_comments": [
+    "core.py:239 Obra.recalcular ignores m.comprado, so the obra's profitability and the finance ledger disagree after a purchase is unmarked.",
+    "admin_routes.py is 1062 lines; split it by domain.",
+    "Login IP is taken from a header the client controls (x-forwarded-for[0]).",
+    "Hard deletes of invoiced transactions break invoice numbering.",
+    "Anonymous upload does not check the real file type."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gmconecta_api.py (new)"
+  ],
+  "success_rate": {
+    "backend": "96% (25/26) – unmark-material recalculation bug",
+    "frontend": "100% of requested flows; 2 low-priority UI truncation issues"
+  },
+  "seed_data_creation": "Created (cannot be deleted via the API): about 9 TEST_ solicitudes (GC-000848..854, emails @example.com, including GC-000854 'TEST_UI Cliente'), 3 TEST_ presupuestos (PR-2026-0006..0008 approx.) and 3 TEST_ obras OB-2026-004/005/006 'TEST_ Reparación fuga'. These obras are assigned to TR01 and appear in his worker panel; one has a test photo and avance 40. Also 3 'TEST_Ferreteria' stores (FE05-FE07, set to activa=false) with pending 'TEST_Cli' derivaciones, uploaded test PNGs, and simulated email messages. I deleted the finance transactions from the TEST obras (material/mano obra/cobro) and the publicidad transactions, but the factura numbers they used are now gaps. Seed data I touched and restored: OB-2026-001 avance 60→75→60; FE01 horario restored; settings cif '' and email_simulacion false restored; admin_email was never set. A 'TEST_UI Derivado' derivación was accidentally added to the seed store FE03 Bricomadrid by my UI script; I removed it from MongoDB by its own id (45effb4671d0), and its comisión transaction had already been deleted by the toggle-back.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the backend tests with `cd /app/backend && python -m pytest tests/test_gmconecta_api.py -n 0` (pytest.ini adds xdist; -n 0 is needed because tests share STATE). The container date is Nov 2026, so obra numbers are OB-2026-xxx. The admin_store card testIDs use the codigo (admin-store-fe03); when locating buttons in the UI scope by the exact card testID, not by walking up ancestors. Do not toggle derivaciones on seed stores.",
+  "rca_of_issue": ""
+}

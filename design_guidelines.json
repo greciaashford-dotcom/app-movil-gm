@@ -1,0 +1,139 @@
+{
+  "app_name": "GM Conecta",
+  "personality": "1 iOS-Native Clean structure with 4 Tactile components (Heavy branding, bold pill buttons, chunky radiuses 24-30 dictated by brand guidelines)",
+  "personality_one_liner": "A professional and confident on-demand services CRM that feels both robustly corporate yet highly approachable through tactile, rounded components.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#081B35",
+    "surfaceSecondary": "#E3F0FF",
+    "onSurfaceSecondary": "#001D3D",
+    "surfaceTertiary": "#FFF3CD",
+    "onSurfaceTertiary": "#071B35",
+    "surfaceInverse": "#001D3D",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#002B55",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#FFCC00",
+    "onBrandPrimary": "#001D3D",
+    "brandSecondary": "#0055A5",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#002659",
+    "onBrandTertiary": "#FFFFFF",
+    "success": "#00AA27",
+    "onSuccess": "#FFFFFF",
+    "warning": "#C95413",
+    "onWarning": "#FFFFFF",
+    "error": "#BD0000",
+    "onError": "#FFFFFF",
+    "info": "#008438",
+    "onInfo": "#FFFFFF",
+    "border": "#CFDCE9",
+    "borderStrong": "#0076CE",
+    "divider": "#CFDCE9",
+    "muted": "#556476",
+    "urgentBg": "#FFF7F5",
+    "urgentBorder": "#FF0000",
+    "urgentTitle": "#A50000",
+    "plumbingBlue": "#008BC2"
+  },
+  "typography": {
+    "displayFontFamily": "Montserrat",
+    "textFontFamily": "Inter",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Avoid cramming elements. Use lg and xl for card paddings and outer margins, honoring the thick rounded aesthetics requested.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 8,
+    "md": 16,
+    "lg": 22,
+    "xl": 24,
+    "2xl": 30,
+    "pill": 999
+  },
+  "shadow_tier": "2",
+  "navigation": "bottom_tabs_with_drawer",
+  "icon_set": "Lucide",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [
+      "Keep standard solid corporate containers and thick border colors as requested."
+    ],
+    "dont's": [
+      "Do not use blur over images; use the explicitly requested white gradient fade to the left for the hero image"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "Client entry point to request quotes and browse services or call emergencies.",
+      "states": {
+        "loading": "Centered spinner on white background",
+        "empty": "N/A - static services grid",
+        "error": "Standard error prompt with retry"
+      },
+      "layout": "Header #002B55 with centered logo + white hamburger menu right. Hero section: white with rounded bottom corners, right-aligned image blended via gradient to left. Title #001D3D 900 italic. Full width primary CTA #FFCC00. 'Nuestros servicios' block #002B55 background, 2x2 grid white cards with border-radius 22. 'Urgencias 24h' block #FFF7F5 background, 4px red border, border-radius 30, containing 2 columns of action buttons."
+    },
+    {
+      "name": "Confirmation",
+      "purpose": "To confirm quote request receipt and explain next steps to the user.",
+      "states": {
+        "loading": "N/A",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Header #001D3D with back chevron left and menu right. White block with right-aligned decorative room image faded to white left, green success circle centered. Title #071B35 900. Info summary card #E3F0FF radius 24 with #CFDCE9 row dividers. 'Next steps' info card #FFF3CD radius 24. Two full-width pill buttons at bottom."
+    },
+    {
+      "name": "Admin Dashboard",
+      "purpose": "High-level KPI overview and quick access for company management.",
+      "states": {
+        "loading": "Skeletons for KPIs",
+        "empty": "N/A",
+        "error": "Standard alert prompt"
+      },
+      "layout": "Use solid colored summary cards (#E3F0FF and #FFF3CD) displaying active workers, pending quotes, and profitability metrics. Utilize clear spacing and strong typographic hierarchy using Montserrat."
+    }
+  ],
+  "images": {
+    "hero_living_room": {
+      "url": "https://images.unsplash.com/photo-1689854497064-0553123a1030?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwzfHxsaXZpbmclMjByb29tJTIwdW5kZXIlMjByZW5vdmF0aW9uJTIwbGFkZGVyJTIwdG9vbGJveHxlbnwwfHx8fDE3OTM5MTQ1Mjd8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Bright modern living room under renovation with beige sofa, ladder, toolbox"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the user's color tokens: Corporate blue (#002B55), Main yellow accents (#FFCC00), Urgent red (#BD0000), Success green (#00AA27).",
+    "Use 'Montserrat' (Black/ExtraBold 900, sometimes italic) for the logo mark, titles and high-impact headings. Use 'Inter' for body texts.",
+    "Implement thick rounded corners precisely as requested (radius 22 for service cards, radius 24 for summary cards, radius 30 for the urgent block).",
+    "In the Hero and Confirmation screens, the background image on the right must seamlessly blend with a white gradient towards the left text area.",
+    "The Bottom navigation must be fixed #001D3D with Active tabs in #FFCC00 and yellow underline. It should also include a hamburger drawer to switch the 'Modo / Rol Actual'.",
+    "All icons must use Lucide (e.g. file-text, chevron-right, droplets, zap, paint-roller, brick-wall, siren, phone, send, house, wrench, clipboard-list, user-round, calendar-days, map-pin, circle-plus, info, check).",
+    "Role switches except for Client must be protected by a 4-digit PIN."
+  ]
+}
