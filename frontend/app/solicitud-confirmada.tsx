@@ -28,7 +28,7 @@ export default function SolicitudConfirmada() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.success}>
           <View style={styles.decor}>
-            <Image source={{ uri: HERO_IMAGE }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            <Image source={HERO_IMAGE} style={StyleSheet.absoluteFill} contentFit="cover" />
             <LinearGradient colors={[colors.surface, colors.heroFade]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
             <LinearGradient colors={[colors.heroFade, colors.surface]} start={{ x: 0.5, y: 0.3 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
           </View>

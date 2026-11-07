@@ -21,6 +21,10 @@ Expo (mobile + web) app "GM Conecta" for GM Reforma Express (Madrid): clients re
 - Store panel: promotions CRUD (pause/publish, image, end date), store info, referred clients
 - Security: per IP and per-account PIN lockout, invoices (numbered income) cannot be deleted / reverted
 
+## Branding / Home (Nov 2026)
+- Logo: assets/images/gm-logo-trim.png (client artwork trimmed of padding); app icon from client's "Icono GMConecta" art
+- Home redesigned after the client's mockup: big logo + "Una plataforma de GM Reforma Express" pill, navy arc into white hero, hero photo (assets/images/home-hero.jpg, from the mockup) on the right with fade, 2×2 horizontal service cards with filled SVG art (src/ui/ServiceArt.tsx), 24h urgency block with siren art + call/send buttons
+
 ## Credentials
 See /app/memory/test_credentials.md (admin 1234, workers 1111, stores 2222)
 

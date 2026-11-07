@@ -130,5 +130,5 @@ export const FASES: { key: "antes" | "durante" | "despues"; label: string }[] = 
   { key: "despues", label: "Después" },
 ];
 
-export const HERO_IMAGE =
-  "https://images.unsplash.com/photo-1689854497064-0553123a1030?crop=entropy&cs=srgb&fm=jpg&q=80&w=900";
+/** Bright renovation interior (living room, ladder, toolbox) taken from the client's home-screen mockup. */
+export const HERO_IMAGE = require("../../assets/images/home-hero.jpg");

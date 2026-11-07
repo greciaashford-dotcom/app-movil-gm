@@ -24,12 +24,14 @@ export function BrandHeader({ variant = "home", showBack, onBack }: { variant?: 
 
   if (variant === "home") {
     return (
-      <View style={[styles.home, { paddingTop: insets.top + 10 }]} testID="brand-header">
+      <View style={[styles.home, { paddingTop: insets.top + 8 }]} testID="brand-header">
         <BrandLogo />
         <View style={styles.pill} testID="brand-header-pill">
-          <Text style={styles.pillText}>Una plataforma de GM Reforma Express</Text>
+          <Text style={styles.pillText}>
+            Una plataforma de <Text style={styles.pillStrong}>GM Reforma Express</Text>
+          </Text>
         </View>
-        <Pressable onPress={open} style={[styles.menuAbs, { top: insets.top + 6 }]} hitSlop={8} testID="header-menu-button" accessibilityLabel="Abrir menú">
+        <Pressable onPress={open} style={[styles.menuAbs, { top: insets.top + 4 }]} hitSlop={8} testID="header-menu-button" accessibilityLabel="Abrir menú">
           <Icon name="menu" size={26} color={colors.onBrand} />
         </Pressable>
       </View>
@@ -101,10 +103,11 @@ export function AppBar({
 }
 
 const useStyles = makeStyles((c) => ({
-  home: { backgroundColor: c.brand, alignItems: "center", paddingBottom: 16, gap: 10 },
-  pill: { borderWidth: 1.5, borderColor: c.pillBorder, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 5 },
-  pillText: { fontFamily: fonts.bodySemi, fontSize: 12, color: c.onBrand },
-  menuAbs: { position: "absolute", right: 10, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  home: { backgroundColor: c.brand, alignItems: "center", paddingBottom: 4, gap: 8 },
+  pill: { borderWidth: 1.5, borderColor: c.pillBorder, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 5, backgroundColor: c.brandDeep },
+  pillText: { fontFamily: fonts.body, fontSize: 13, color: c.onBrand },
+  pillStrong: { fontFamily: fonts.bodyBold },
+  menuAbs: { position: "absolute", right: 8, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   compact: { backgroundColor: c.brandDeep, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingBottom: 10 },
   sideBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   appbar: { backgroundColor: c.brandDeep, flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingBottom: 10, gap: 4 },
