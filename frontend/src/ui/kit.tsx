@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   TextInputProps,
+  TextStyle,
   View,
   ViewStyle,
 } from "react-native";
@@ -29,6 +30,7 @@ export function PillButton({
   testID,
   small,
   style,
+  textStyle,
 }: {
   label: string;
   icon?: IconName;
@@ -40,6 +42,7 @@ export function PillButton({
   testID?: string;
   small?: boolean;
   style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -65,7 +68,7 @@ export function PillButton({
       ) : (
         <>
           {icon ? <Icon name={icon} size={small ? 17 : 20} color={v.fg} /> : null}
-          <Text style={[styles.btnText, small && styles.btnTextSmall, { color: v.fg }]} numberOfLines={1}>
+          <Text style={[styles.btnText, small && styles.btnTextSmall, { color: v.fg }, textStyle]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
             {label}
           </Text>
           {iconRight ? <Icon name={iconRight} size={small ? 17 : 20} color={v.fg} /> : null}
