@@ -1,8 +1,8 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import { LayoutChangeEvent, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
@@ -21,12 +21,20 @@ const CURVE_DEPTH = 26;
 /** Width / height of the hero photo, so it is never zoomed or cropped. */
 const HERO_RATIO = 766 / 732;
 
-/** Width-driven sizes so the home keeps the same composition on every phone (390pt = reference). */
+/** Image bottom offset inside the hero (the CTA covers the rest). */
+const HERO_IMG_BOTTOM = 40;
+
+/** Screen-driven sizes so hero, services and urgencies all fit in the first view on every phone (390pt = reference). */
 function useHomeSizes() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   return useMemo(() => {
     const k = Math.min(1.15, Math.max(0.8, width / 390));
+    const compact = height < 720;
     const showCtaChevron = width >= 330;
+    const showCardChevron = width >= 350;
+    const art = Math.round(34 * k);
+    // Room for a service name: two cards per row (screen padding 24 + gap 8), card padding 12, art + gap 6, chevron + gap 22.
+    const cardRoom = (width - 32) / 2 - 12 - art - 6 - (showCardChevron ? 22 : 0);
     // Room left for the CTA label: hero padding 32, button padding 36, icons 20 each, gaps 8 each.
     const ctaRoom = width - 32 - 36 - (showCtaChevron ? 56 : 28);
     const urgentRow = width >= 340;
@@ -35,19 +43,21 @@ function useHomeSizes() {
     return {
       showCtaChevron,
       urgentRow,
-      singleColumn: width < 350,
-      art: Math.round(34 * k),
-      siren: Math.round(50 * k),
+      showCardChevron,
+      art,
+      siren: Math.round((compact ? 40 : 46) * k),
+      hero: { paddingTop: CURVE_DEPTH + (compact ? 4 : 10), maxHeight: Math.max(200, Math.min(300, height * 0.34)) },
       title: { fontSize: Math.max(17, 20 * k), lineHeight: Math.max(21, 24 * k) },
-      desc: { fontSize: Math.max(11, 12.5 * k), lineHeight: Math.max(15.5, 17 * k) },
       cta: { fontSize: Math.min(16 * Math.min(k, 1.06), Math.max(11, ctaRoom / 15.3)) },
-      cardTitle: { fontSize: 14.5 * k },
-      cardDesc: { fontSize: Math.max(10, 11 * k), lineHeight: Math.max(13, 14 * k) },
-      urgentTitle: { fontSize: 21 * k },
-      urgentDesc: { fontSize: 13 * k },
+      services: { paddingTop: compact ? 10 : 16, gap: compact ? 8 : 10 },
+      card: { minHeight: compact ? 46 : 54 },
+      cardTitle: { fontSize: Math.min(15.5 * k, cardRoom / 6.6) },
+      urgent: { paddingVertical: compact ? 8 : 12, gap: compact ? 8 : 10, marginTop: compact ? 8 : 12 },
+      urgentTitle: { fontSize: 20 * k },
+      urgentDesc: { fontSize: 12.5 * k },
       urgentBtn: { fontSize: urgentRow ? Math.min(14, urgentRoom / 8.5) : 14 },
     };
-  }, [width]);
+  }, [width, height]);
 }
 
 export default function HomeScreen() {
@@ -57,13 +67,18 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const sz = useHomeSizes();
+  const { width } = useWindowDimensions();
+  const [heroH, setHeroH] = useState(0);
+  // Photo fills the hero height without being zoomed or cropped, capped so it never covers the whole width.
+  const imgW = Math.max(0, Math.min((heroH - HERO_IMG_BOTTOM) * HERO_RATIO, width * 0.68));
+  const onHeroLayout = (e: LayoutChangeEvent) => setHeroH(Math.round(e.nativeEvent.layout.height));
 
   return (
     <View style={styles.screen} testID="home-screen">
       <BrandHeader variant="home" />
-      <ScrollView contentContainerStyle={{ paddingBottom: bottomChrome + 24 }} showsVerticalScrollIndicator={false}>
-        <Animated.View entering={FadeInDown.duration(420)} style={styles.hero} testID="home-hero">
-          <View style={styles.heroImgWrap} pointerEvents="none">
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 12 }]} showsVerticalScrollIndicator={false}>
+        <Animated.View entering={FadeInDown.duration(420)} style={[styles.hero, sz.hero]} onLayout={onHeroLayout} testID="home-hero">
+          <View style={[styles.heroImgWrap, { width: imgW }]} pointerEvents="none">
             <Image source={HERO_IMAGE} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
             <LinearGradient colors={[colors.surface, colors.heroFade]} start={{ x: 0, y: 0.5 }} end={{ x: 0.45, y: 0.5 }} style={StyleSheet.absoluteFill} />
             <LinearGradient colors={[colors.surface, colors.heroFade, colors.heroFade, colors.surface]} locations={[0, 0.12, 0.9, 1]} style={StyleSheet.absoluteFill} />
@@ -76,9 +91,6 @@ export default function HomeScreen() {
               ¿Qué necesitas reparar o reformar?
             </Text>
             <View style={styles.heroLine} />
-            <Text style={[styles.heroDesc, sz.desc]} testID="home-hero-desc">
-              Encuentra soluciones para tu vivienda, negocio o comunidad de propietarios. Cuéntanos qué necesitas y prepararemos un presupuesto personalizado.
-            </Text>
           </View>
           <PillButton
             label="Solicitar presupuesto gratis"
@@ -91,7 +103,7 @@ export default function HomeScreen() {
           />
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(120).duration(420)} style={styles.services}>
+        <Animated.View entering={FadeInDown.delay(120).duration(420)} style={[styles.services, sz.services]}>
           <View style={styles.servicesTitleRow}>
             <View style={styles.yLine} />
             <Text style={styles.servicesTitle}>Nuestros servicios</Text>
@@ -103,26 +115,21 @@ export default function HomeScreen() {
                 key={s.slug}
                 testID={`home-service-${s.slug}`}
                 onPress={() => router.push(`/servicios/${s.slug}` as never)}
-                style={({ pressed }) => [styles.card, sz.singleColumn && styles.cardFull, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.card, sz.card, pressed && styles.pressed]}
                 accessibilityRole="button"
-                accessibilityLabel={`${s.nombre}. ${s.desc}`}
+                accessibilityLabel={s.nombre}
               >
                 <ServiceArt slug={s.slug} fallback={s.icon} size={sz.art} />
-                <View style={styles.cardBody}>
-                  <Text style={[styles.cardTitle, sz.cardTitle]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                    {s.nombre}
-                  </Text>
-                  <Text style={[styles.cardDesc, sz.cardDesc]} numberOfLines={4}>
-                    {s.desc}
-                  </Text>
-                </View>
-                <Icon name="chevron-right" size={16} color={colors.brandDeep} />
+                <Text style={[styles.cardTitle, sz.cardTitle]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                  {s.nombre}
+                </Text>
+                {sz.showCardChevron ? <Icon name="chevron-right" size={16} color={colors.brandDeep} /> : null}
               </Pressable>
             ))}
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(220).duration(420)} style={styles.urgent} testID="home-urgent-block">
+        <Animated.View entering={FadeInDown.delay(220).duration(420)} style={[styles.urgent, sz.urgent]} testID="home-urgent-block">
           <View style={styles.urgentHead}>
             <SirenArt size={sz.siren} />
             <View style={styles.flex}>
@@ -144,27 +151,28 @@ const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.brand },
   flex: { flex: 1 },
   pressed: { transform: [{ scale: 0.97 }], opacity: 0.94 },
+  content: { flexGrow: 1 },
   hero: {
     backgroundColor: c.surface,
     borderBottomLeftRadius: radius.xxl,
     borderBottomRightRadius: radius.xxl,
-    paddingTop: CURVE_DEPTH + 10,
-    paddingBottom: 16,
+    flexGrow: 1,
+    justifyContent: "space-between",
+    paddingBottom: 14,
     paddingHorizontal: 16,
-    gap: 14,
+    gap: 12,
     overflow: "hidden",
   },
-  heroImgWrap: { position: "absolute", right: 0, bottom: 40, width: "68%", aspectRatio: HERO_RATIO },
+  heroImgWrap: { position: "absolute", right: 0, bottom: HERO_IMG_BOTTOM, aspectRatio: HERO_RATIO },
   curve: { position: "absolute", top: 0, left: 0, right: 0 },
   heroText: { width: "66%", gap: 8 },
   heroTitle: { fontFamily: fonts.black, color: c.brandDeep },
   heroLine: { width: 52, height: 4, borderRadius: 2, backgroundColor: c.brandPrimary },
-  heroDesc: { fontFamily: fonts.body, color: c.textDark, width: "96%" },
-  heroCta: { paddingHorizontal: 18, gap: 8, shadowColor: c.brandDeep, shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
-  services: { paddingHorizontal: 12, paddingTop: 18, gap: 12 },
+  heroCta: { minHeight: 50, paddingHorizontal: 18, gap: 8, shadowColor: c.brandDeep, shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  services: { paddingHorizontal: 12 },
   servicesTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, justifyContent: "center" },
   yLine: { flex: 1, maxWidth: 64, height: 3, borderRadius: 2, backgroundColor: c.brandPrimary },
-  servicesTitle: { fontFamily: fonts.extraBold, fontSize: 21, color: c.onBrand },
+  servicesTitle: { fontFamily: fonts.extraBold, fontSize: 20, color: c.onBrand },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   card: {
     flexBasis: "46%",
@@ -174,26 +182,18 @@ const useStyles = makeStyles((c) => ({
     gap: 6,
     backgroundColor: c.surface,
     borderRadius: radius.md,
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingLeft: 8,
     paddingRight: 4,
-    minHeight: 78,
   },
-  cardFull: { flexBasis: "100%", minHeight: 64 },
-  cardBody: { flex: 1, gap: 2 },
-  cardTitle: { fontFamily: fonts.extraBold, color: c.brandDeep },
-  cardDesc: { fontFamily: fonts.body, color: c.textDark },
+  cardTitle: { flex: 1, fontFamily: fonts.extraBold, color: c.brandDeep },
   urgent: {
     marginHorizontal: 12,
-    marginTop: 12,
-    marginBottom: 12,
     backgroundColor: c.urgentBg,
     borderWidth: 3,
     borderColor: c.urgentBorder,
     borderRadius: radius.lg,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 12,
   },
   urgentHead: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 4 },
   urgentTitle: { fontFamily: fonts.black, color: c.urgentTitle },
