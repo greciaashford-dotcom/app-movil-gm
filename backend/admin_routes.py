@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 from core import (
     ALGORITHM, COMPANY_ID, JWT_SECRET, Cliente, Derivacion, Ferreteria, LineaPresupuesto, ManoObra, Material, Mensaje,
     MovimientoFinanciero, Obra, Presupuesto, Recordatorio, Solicitud, Trabajador, UserDoc, db, find_docs, get_doc,
-    get_settings, insert_doc, money, month_bounds, next_seq, norm_phone, now_iso, now_utc, optional_user,
-    require_admin, save_doc, scoped, to_oid, today_local, today_str, upsert_user,
+    get_settings, hasher, insert_doc, money, month_bounds, next_seq, norm_phone, now_iso, now_utc, optional_user,
+    require_admin, save_doc, scoped, to_oid, today_local, today_str, upsert_user, check_pin, clear_login_failures,
 )
 from email_service import EMAIL_KEY, deliver, email_mode, tpl_presupuesto, tpl_prueba, tpl_respuesta
 
@@ -539,7 +539,7 @@ class TrabajadorIn(BaseModel):
     disponibilidad: Literal["disponible", "ocupado", "vacaciones"] = "disponible"
     coste_hora_o_servicio: float = Field(ge=0, le=10000)
     tipo_coste: Literal["hora", "servicio"] = "hora"
-    pin: str = Field(min_length=4, max_length=8, pattern=r"^\d+$")
+    pin: str = Field(min_length=1, max_length=12)
 
 
 class TrabajadorPatch(BaseModel):
@@ -549,7 +549,7 @@ class TrabajadorPatch(BaseModel):
     disponibilidad: Optional[Literal["disponible", "ocupado", "vacaciones"]] = None
     coste_hora_o_servicio: Optional[float] = Field(default=None, ge=0, le=10000)
     tipo_coste: Optional[Literal["hora", "servicio"]] = None
-    pin: Optional[str] = Field(default=None, min_length=4, max_length=8, pattern=r"^\d+$")
+    pin: Optional[str] = Field(default=None, min_length=1, max_length=12)
 
 
 async def worker_out(w: Trabajador) -> dict:
@@ -565,6 +565,7 @@ async def listar_trabajadores():
 
 @router.post("/admin/trabajadores", status_code=201)
 async def crear_trabajador(body: TrabajadorIn):
+    check_pin(body.pin)
     seq = await next_seq("trabajador")
     w = Trabajador(codigo=f"TR{seq:02d}", **body.model_dump(exclude={"pin"}))
     await insert_doc("workers", w)
@@ -577,6 +578,8 @@ async def editar_trabajador(w_id: str, body: TrabajadorPatch):
     w = await get_doc("workers", Trabajador, w_id)
     data = body.model_dump(exclude_none=True)
     pin = data.pop("pin", None)
+    if pin:
+        check_pin(pin)
     for k, v in data.items():
         setattr(w, k, v)
     await save_doc("workers", w)
@@ -882,7 +885,7 @@ class FerreteriaIn(BaseModel):
     productos_destacados: List[str] = Field(default_factory=list, max_length=20)
     porcentaje_comision: float = Field(default=5, ge=0, le=50)
     tarifa_publicidad_mensual: float = Field(default=0, ge=0, le=10000)
-    pin: str = Field(min_length=4, max_length=8, pattern=r"^\d+$")
+    pin: str = Field(min_length=1, max_length=12)
 
 
 class FerreteriaPatch(BaseModel):
@@ -914,6 +917,7 @@ async def admin_ferreterias():
 
 @router.post("/admin/ferreterias", status_code=201)
 async def crear_ferreteria(body: FerreteriaIn):
+    check_pin(body.pin)
     seq = await next_seq("ferreteria")
     f = Ferreteria(codigo=f"FE{seq:02d}", **body.model_dump(exclude={"pin"}))
     await insert_doc("hardware_stores", f)
@@ -1074,3 +1078,53 @@ async def probar_email():
 @router.get("/admin/mensajes")
 async def listar_mensajes(limit: int = Query(50, ge=1, le=200)):
     return [m.out() for m in await find_docs("messages", Mensaje, sort=[("fecha", -1)], limit=limit)]
+
+
+# ================================================================ staff access (accounts + PIN)
+class AccesoPinIn(BaseModel):
+    pin: str = Field(min_length=1, max_length=12)
+
+
+def acceso_out(u: UserDoc) -> dict:
+    return {
+        "id": u.id,
+        "role": u.role,
+        "code": u.code.upper() if u.role != "admin" else u.code,
+        "display_name": u.display_name,
+        "account_email": u.account_email if u.account_id else "",
+        "vinculado": bool(u.account_id),
+        "pin_reset_required": u.pin_reset_required,
+    }
+
+
+async def _acceso(user_id: str) -> UserDoc:
+    doc = await db.users.find_one(scoped({"_id": to_oid(user_id)}))
+    if not doc:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    return UserDoc.from_mongo(doc)
+
+
+@router.get("/admin/accesos")
+async def listar_accesos():
+    orden = {"admin": 0, "trabajador": 1, "ferreteria": 2}
+    users = [UserDoc.from_mongo(d) async for d in db.users.find(scoped({"active": True}))]
+    users.sort(key=lambda u: (orden.get(u.role, 9), u.code))
+    return [acceso_out(u) for u in users]
+
+
+@router.patch("/admin/accesos/{user_id}/pin")
+async def cambiar_pin_acceso(user_id: str, body: AccesoPinIn):
+    check_pin(body.pin)
+    u = await _acceso(user_id)
+    await db.users.update_one({"_id": to_oid(u.id)}, {"$set": {"pin_hash": hasher.hash(body.pin), "pin_version": 2, "pin_reset_required": False}})
+    await clear_login_failures(f"account:{u.role}:{u.code}")
+    u.pin_reset_required = False
+    return acceso_out(u)
+
+
+@router.delete("/admin/accesos/{user_id}/cuenta")
+async def desvincular_acceso(user_id: str):
+    u = await _acceso(user_id)
+    await db.users.update_one({"_id": to_oid(u.id)}, {"$set": {"account_id": None, "account_email": ""}})
+    u.account_id, u.account_email = None, ""
+    return acceso_out(u)

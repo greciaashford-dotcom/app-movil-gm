@@ -17,10 +17,14 @@ def _base():
 API = _base()
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
 STATE = {}
+# App account (step 1 auth) shared by the whole module: X-Account-Token header
+_reg = requests.post(f"{API}/cuenta/registro", json={"nombre": "TEST_Regression", "email": f"qa.reg+{uuid.uuid4().hex[:8]}@example.com", "password": "Clave2026x"}, timeout=20)
+ACC = {"X-Account-Token": _reg.json()["token"]}
+ACCOUNT_ID = _reg.json()["cuenta"].get("account_id") or _reg.json()["cuenta"].get("id")
 
 
 def login(role, code, pin):
-    return requests.post(f"{API}/auth/login", json={"role": role, "code": code, "pin": pin}, timeout=20)
+    return requests.post(f"{API}/auth/login", json={"role": role, "code": code, "pin": pin}, headers=ACC, timeout=20)
 
 
 def H(tok):
@@ -29,7 +33,7 @@ def H(tok):
 
 @pytest.fixture(scope="session")
 def admin():
-    r = login("admin", "admin", "1234")
+    r = login("admin", "admin", "582047")
     if r.status_code != 200:
         pytest.skip("admin login failed")
     return H(r.json()["access_token"])
@@ -37,14 +41,14 @@ def admin():
 
 @pytest.fixture(scope="session")
 def worker():
-    r = login("trabajador", "TR01", "1111")
+    r = login("trabajador", "TR01", "361948")
     assert r.status_code == 200
     return H(r.json()["access_token"]), r.json()["entity_id"]
 
 
 @pytest.fixture(scope="session")
 def store():
-    r = login("ferreteria", "FE01", "2222")
+    r = login("ferreteria", "FE01", "724613")
     assert r.status_code == 200
     return H(r.json()["access_token"])
 
@@ -53,13 +57,13 @@ def new_solicitud(key=None):
     body = {"idempotency_key": key or f"TEST_{uuid.uuid4().hex}", "servicio": "Fontanería",
             "descripcion": "TEST_ fuga de agua en cocina bajo fregadero", "nombre_cliente": "TEST_Cliente",
             "telefono_cliente": "600111222", "correo_cliente": "test_cliente@example.com", "direccion": "Calle Test 1, Madrid"}
-    return body, requests.post(f"{API}/solicitudes", json=body, timeout=20)
+    return body, requests.post(f"{API}/solicitudes", json=body, headers=ACC, timeout=20)
 
 
 # ---------------- auth
 class TestAuth:
     def test_logins(self):
-        for role, code, pin in (("admin", "admin", "1234"), ("trabajador", "TR01", "1111"), ("ferreteria", "FE01", "2222")):
+        for role, code, pin in (("admin", "admin", "582047"), ("trabajador", "TR01", "361948"), ("ferreteria", "FE01", "724613")):
             r = login(role, code, pin)
             assert r.status_code == 200, r.text
             d = r.json()
@@ -99,7 +103,7 @@ class TestSolicitudes:
         STATE["sol"] = d
 
     def test_validation(self):
-        r = requests.post(f"{API}/solicitudes", json={"idempotency_key": "TEST_short"})
+        r = requests.post(f"{API}/solicitudes", json={"idempotency_key": "TEST_short"}, headers=ACC)
         assert r.status_code == 422
 
 
@@ -253,7 +257,7 @@ class TestFerreterias:
 
     def test_derivacion_publicidad(self, admin):
         f = requests.post(f"{API}/admin/ferreterias", headers=admin, json={"nombre": "TEST_Ferreteria", "direccion": "Calle Test 9",
-                          "porcentaje_comision": 10, "tarifa_publicidad_mensual": 25, "pin": "4321"})
+                          "porcentaje_comision": 10, "tarifa_publicidad_mensual": 25, "pin": "583027"})
         assert f.status_code == 201, f.text
         fid = f.json()["id"]
         STATE["store_id"] = fid

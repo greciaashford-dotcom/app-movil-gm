@@ -148,6 +148,8 @@ frontend:
 
 agent_communication:
   - agent: "main"
+    message: "Iteration 2 (new session): (1) Mandatory app account before using the app: email+password register/login (/api/cuenta/registro, /api/cuenta/login, /api/cuenta/me, /api/cuenta/logout, header X-Account-Token) and Emergent Google auth (POST /api/auth/session). Root gate with Stack.Protected → /login, /registro. Session persists on device. (2) Staff PIN now 6 digits with complexity rules, requires account token, profile linked to the account on first PIN login (403 for other accounts), POST /api/auth/cambiar-pin, admin /api/admin/accesos (list, PATCH pin, DELETE link), screen /admin/accesos. New seeded PINs in /app/memory/test_credentials.md. POST /api/solicitudes and /api/upload now require an account; /api/solicitudes/mine also returns the account's requests. 401s carry header X-Auth-Error (account|staff). (3) iOS: frontend deps aligned with Expo Go SDK 58 (expo install --fix, expo-doctor 20/20)."
+  - agent: "main"
     message: "First full test pass. Credentials in /app/memory/test_credentials.md. Use example.com emails for client requests (emails to placeholder domains are simulated, not sent)."
   - agent: "main"
     message: "Iteration 1 fixes: Obra.recalcular counts only comprado materials; per-account PIN lockout (15) on top of per-IP (5); invoiced income can't be deleted / derivación cobrada can't revert (409); upload validates magic bytes; CSV export uses 2-min dl token (POST /api/admin/gestoria/export-token); KPI font shrink; shorter button labels. Backend pytest 26/26 pass. Test data cleaned with backend/tests/cleanup_test_data.py."

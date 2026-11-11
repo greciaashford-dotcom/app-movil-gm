@@ -84,7 +84,7 @@ function NuevoTrabajador({ visible, onClose }: { visible: boolean; onClose: () =
   const styles = useStyles();
   const toast = useToast();
   const qc = useQueryClient();
-  const [f, setF] = useState({ nombre: "", especialidad: "", telefono: "", coste: "", pin: "1111" });
+  const [f, setF] = useState({ nombre: "", especialidad: "", telefono: "", coste: "", pin: "" });
   const [tipo, setTipo] = useState<"hora" | "servicio">("hora");
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -92,7 +92,7 @@ function NuevoTrabajador({ visible, onClose }: { visible: boolean; onClose: () =
     mutationFn: () => {
       if (f.nombre.trim().length < 2 || f.especialidad.trim().length < 2) throw new Error("Indica nombre y especialidad");
       if (f.telefono.replace(/\D/g, "").length < 9) throw new Error("Teléfono no válido");
-      if (!/^\d{4,8}$/.test(f.pin)) throw new Error("El PIN debe tener entre 4 y 8 cifras");
+      if (!/^\d{6}$/.test(f.pin)) throw new Error("El PIN debe tener exactamente 6 cifras");
       return api.post<Trabajador>("/admin/trabajadores", {
         nombre: f.nombre.trim(),
         especialidad: f.especialidad.trim(),
@@ -106,7 +106,7 @@ function NuevoTrabajador({ visible, onClose }: { visible: boolean; onClose: () =
       qc.invalidateQueries({ queryKey: ["admin-trabajadores"] });
       qc.invalidateQueries({ queryKey: ["auth-options"] });
       toast.show(`${w.nombre} añadido (${w.codigo})`);
-      setF({ nombre: "", especialidad: "", telefono: "", coste: "", pin: "1111" });
+      setF({ nombre: "", especialidad: "", telefono: "", coste: "", pin: "" });
       setError(null);
       onClose();
     },
@@ -122,7 +122,17 @@ function NuevoTrabajador({ visible, onClose }: { visible: boolean; onClose: () =
         <Chip label="Por servicio" selected={tipo === "servicio"} onPress={() => setTipo("servicio")} testID="new-worker-type-service" />
       </View>
       <Field label={`Coste por ${tipo} (€)`} value={f.coste} onChangeText={set("coste")} keyboardType="decimal-pad" testID="new-worker-cost-input" />
-      <Field label="PIN de acceso (modo Trabajador)" value={f.pin} onChangeText={set("pin")} keyboardType="number-pad" maxLength={8} testID="new-worker-pin-input" />
+      <Field
+        label="PIN de acceso (6 cifras, modo Trabajador)"
+        value={f.pin}
+        onChangeText={(t) => set("pin")(t.replace(/\D/g, "").slice(0, 6))}
+        keyboardType="number-pad"
+        secureTextEntry
+        maxLength={6}
+        placeholder="••••••"
+        hint="Sin secuencias (123456) ni repeticiones (111111)."
+        testID="new-worker-pin-input"
+      />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <PillButton label="Guardar trabajador" icon="check" onPress={() => mut.mutate()} loading={mut.isPending} testID="new-worker-submit-button" />
     </Sheet>

@@ -1,0 +1,46 @@
+{
+  "summary": "Tested the new two-step auth end to end: app account (email/password, Google button) plus a 6-digit staff PIN with account linking, along with admin 'Accesos y PIN' and the account-gated client flows. Backend: 42/42 pytest pass (16 new tests in test_account_auth.py, plus 26 in the updated regression file test_gmconecta_api.py). Frontend at 390x844: all requested flows pass. These are: opens on /login when signed out; register with validation errors; session survives reload; drawer account and sign-out; re-login; admin PIN, wrong-PIN error and the change-PIN form; Accesos screen with change-PIN and unlink sheets; 'Salir del modo' keeps you signed in; TR01 and FE01 PINs; the 4-step quote request prefills name and email from the account; Mis solicitudes lists the request; Contacto account-card and Cerrar sesión; Google button redirects through auth.emergentagent.com to accounts.google.com. Also checked: the staff mode survives a reload, and when the admin unlinks the profile the app drops back to Cliente while staying signed in. No functional bugs found. Deprecated packages detected: none (no expo-av, expo-barcode-scanner or expo-background-fetch).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "The global per-profile lockout key 'account:{role}:{code}' (15 failures, any IP, any account) lets anyone with a free self-registered account lock the admin, or any worker or store, out of PIN login for 15 minutes. It is a denial-of-service vector. Consider keying this limit per account_id + profile instead of globally."},
+      {"endpoint": "POST /api/cuenta/login", "issue": "'cuenta-total:{email}' (15 failures from any IP) lets a third party lock any user's email login for 15 minutes just by knowing the address. Same DoS concern."},
+      {"endpoint": "POST /api/cuenta/registro", "issue": "No rate limit on registration, so anyone can create accounts in bulk (and each new account can then add attempts to the PIN lockout above)."},
+      {"endpoint": "POST /api/solicitudes", "issue": "Idempotency lookup returns an existing request by idempotency_key without checking cuenta_id. Low risk because the keys are random UUIDs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_account_auth.py",
+    "/app/backend/tests/test_gmconecta_api.py",
+    "/app/backend/tests/cleanup_accounts.py",
+    "/app/test_reports/pytest/pytest_account_auth.xml"
+  ],
+  "action_items": [
+    "Optional hardening: make the global PIN lockout key per-account (account_id + role + code) so registered strangers cannot lock out the admin PIN; do the same for the email-login total counter.",
+    "Optional: add per-IP rate limiting to /api/cuenta/registro.",
+    "Code size: admin_routes.py is 1130 lines (>700); consider splitting it (accesos, ferreterias, finanzas, obras)."
+  ],
+  "critical_code_review_comments": [
+    "Account and staff session design is solid. The staff JWT carries the account session sid, and resolve_token checks that the session exists and that user.account_id matches. So logging out or being unlinked ends the staff mode at once (verified by API and in the UI).",
+    "check_pin enforces exactly 6 digits, at least 3 distinct digits, no arithmetic sequences, a common-PIN list, and no repeated halves. It is applied in cambiar-pin, admin accesos, and admin create/patch of workers and stores (verified).",
+    "The X-Auth-Error header is set only for expired or invalid sessions, so a wrong password or PIN never signs the user out (verified: no header on /cuenta/login 401).",
+    "admin_routes.py is 1130 lines; it should be split."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gmconecta_api.py (6-digit PINs, X-Account-Token on /auth/login and /solicitudes, 6-digit store PIN)",
+    "/app/backend/tests/test_account_auth.py (new)",
+    "/app/backend/tests/cleanup_accounts.py (new: unlink profiles, delete qa.*+hex@example.com accounts and their sessions, clear auth login_limits)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Created test accounts qa.*+<hex>@example.com, TEST_ requests GC-0008xx, and TEST_Worker / TEST_Store. All were cleaned up with cleanup_accounts.py and cleanup_test_data.py. Final state: 0 profiles linked, 0 accounts left, login_limits for auth cleared. All 10 PINs re-verified against test_credentials.md (admin 582047 … FE04 186453): each returns 200. PINs were changed during tests (FE01, TR01, TR05) and restored to their original values. The admin PIN was never changed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest with '-n 0' from /app/backend/tests (pytest.ini adds xdist). Run cleanup_accounts.py between test_account_auth.py and test_gmconecta_api.py, otherwise profiles linked by one file give 403 in the other. Always run cleanup_accounts.py and cleanup_test_data.py at the end. Accesos testIDs use lowercase codes (access-change-pin-tr05). Sheets slide in; wait about 1s before clicking inside them. The pin-submit-button may auto-submit at 6 digits.",
+  "rca_of_issue": ""
+}

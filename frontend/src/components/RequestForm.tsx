@@ -6,6 +6,7 @@ import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboa
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/src/auth";
 import { usePhotoPicker } from "@/src/hooks/usePhotoPicker";
 import { api, errorMessage, uploadImage } from "@/src/lib/api";
 import { CATEGORIAS_FORM, COMPANY_PHONE, URGENCIA_TIPOS } from "@/src/lib/constants";
@@ -29,6 +30,7 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
   const insets = useSafeAreaInsets();
   const idemKey = useRef(genKey());
   const { pick, permissionSheet } = usePhotoPicker();
+  const { account } = useAuth();
 
   const [step, setStep] = useState(0);
   const [categoria, setCategoria] = useState<string>(urgent ? "Urgencia 24h" : initialServicio ?? "");
@@ -46,12 +48,12 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
 
   useEffect(() => {
     getPerfil().then((p) => {
-      setNombre((v) => v || p.nombre);
+      setNombre((v) => v || p.nombre || account?.nombre || "");
       setTelefono((v) => v || p.telefono);
-      setCorreo((v) => v || p.correo);
+      setCorreo((v) => v || p.correo || account?.email || "");
       setDireccion((v) => v || p.direccion);
     });
-  }, []);
+  }, [account]);
 
   const isUrgent = categoria === "Urgencia 24h";
   const servicio = isUrgent ? `Urgencia 24h · ${urgTipo}` : categoria;

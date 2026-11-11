@@ -1,10 +1,12 @@
 """Shared core for GM Conecta: database, document models and auth helpers."""
+import hashlib
 import logging
 import os
+import re
 import secrets
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, List, Literal, NamedTuple, Optional
 from zoneinfo import ZoneInfo
 
 import jwt
@@ -122,6 +124,7 @@ class Solicitud(BaseDocument):
     fotografias: List[str] = Field(default_factory=list)
     idempotency_key: str
     cliente_id: Optional[str] = None
+    cuenta_id: Optional[str] = None
     presupuesto_id: Optional[str] = None
     obra_id: Optional[str] = None
 
@@ -361,6 +364,32 @@ class UserDoc(BaseDocument):
     display_name: str
     entity_id: Optional[str] = None
     active: bool = True
+    account_id: Optional[str] = None  # app account allowed to use this staff profile (linked on first PIN login)
+    account_email: str = ""
+    pin_version: int = 1  # 2 = 6-digit PIN policy
+    pin_reset_required: bool = False
+
+
+class Cuenta(BaseDocument):
+    """App account (email + password and/or Google). Everybody signs in with one before using the app."""
+    account_id: str
+    email: str
+    nombre: str
+    password_hash: Optional[str] = None
+    proveedores: List[str] = Field(default_factory=list)
+    foto: str = ""
+    fecha_alta: str = Field(default_factory=now_iso)
+    active: bool = True
+
+    def public(self) -> dict:
+        return {
+            "account_id": self.account_id,
+            "email": self.email,
+            "nombre": self.nombre,
+            "foto": self.foto,
+            "proveedores": self.proveedores,
+            "tiene_password": bool(self.password_hash),
+        }
 
 
 class FileDoc(BaseDocument):
@@ -432,17 +461,104 @@ async def get_settings() -> CompanySettings:
 hasher = PasswordHash.recommended()
 DUMMY_HASH = hasher.hash("pin-no-valido")
 bearer = HTTPBearer(auto_error=False)
-MAX_FAILURES = 5  # per IP + role + code
-MAX_ACCOUNT_FAILURES = 15  # per role + code, whatever the IP (X-Forwarded-For can be spoofed)
+MAX_FAILURES = 5  # per IP (or per signed-in account) + role + code
+MAX_ACCOUNT_FAILURES = 15  # per email for email login, whatever the IP (X-Forwarded-For can be spoofed)
+MAX_PROFILE_FAILURES = 100  # global brute-force ceiling per staff profile; high so other accounts cannot lock it out
+MAX_EMAIL_FAILURES = 50  # global ceiling per email for email login
 WINDOW_SECONDS = 15 * 60
+ACCOUNT_HEADER = "x-account-token"
+ACCOUNT_SESSION_DAYS = 60
 
 
-def make_token(user: UserDoc) -> str:
+def auth_error(detail: str, kind: Literal["account", "staff"]) -> HTTPException:
+    """401 tagged with the session that failed, so the app knows whether to sign out or just leave the staff mode."""
+    return HTTPException(status_code=401, detail=detail, headers={"X-Auth-Error": kind})
+
+
+def client_ip(request: Request) -> str:
+    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+# ------------------------------------------------ PIN policy (6 digits, not trivial)
+COMMON_PINS = {
+    "123456", "654321", "123123", "321321", "112233", "111222", "123321", "696969", "159753", "147258",
+    "258369", "789456", "456789", "987654", "012345", "543210", "102030", "101010", "202020", "000123",
+}
+
+
+def check_pin(pin: str) -> None:
+    if not re.fullmatch(r"\d{6}", pin or ""):
+        raise HTTPException(status_code=422, detail="El PIN debe tener exactamente 6 cifras")
+    if len(set(pin)) < 3:
+        raise HTTPException(status_code=422, detail="PIN demasiado fácil: usa al menos 3 cifras distintas")
+    if len({(int(pin[i + 1]) - int(pin[i])) % 10 for i in range(5)}) == 1:
+        raise HTTPException(status_code=422, detail="El PIN no puede ser una secuencia (123456, 987654…)")
+    if pin in COMMON_PINS or pin[:3] == pin[3:]:
+        raise HTTPException(status_code=422, detail="Ese PIN es demasiado común. Elige otro")
+
+
+# ------------------------------------------------ app accounts
+class AccountSession(NamedTuple):
+    cuenta: Cuenta
+    sid: str
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def create_account_session(cuenta: Cuenta) -> str:
+    token = secrets.token_urlsafe(32)
+    t = now_utc()
+    await db.account_sessions.insert_one({
+        "token_hash": token_hash(token),
+        "sid": secrets.token_hex(12),
+        "account_id": cuenta.account_id,
+        "created_at": t,
+        "expires_at": t + timedelta(days=ACCOUNT_SESSION_DAYS),
+    })
+    return token
+
+
+async def resolve_account(token: str) -> AccountSession:
+    sess = await db.account_sessions.find_one({"token_hash": token_hash(token)})
+    if not sess or _aware(sess["expires_at"]) <= now_utc():
+        raise auth_error("Tu sesión ha caducado. Vuelve a iniciar sesión.", "account")
+    doc = await db.accounts.find_one({"account_id": sess["account_id"], "active": True})
+    if not doc:
+        raise auth_error("Tu sesión ha caducado. Vuelve a iniciar sesión.", "account")
+    return AccountSession(Cuenta.from_mongo(doc), sess["sid"])
+
+
+async def current_account(request: Request) -> AccountSession:
+    token = request.headers.get(ACCOUNT_HEADER, "").strip()
+    if not token:
+        raise auth_error("Inicia sesión para continuar", "account")
+    return await resolve_account(token)
+
+
+async def optional_account(request: Request) -> Optional[AccountSession]:
+    token = request.headers.get(ACCOUNT_HEADER, "").strip()
+    if not token:
+        return None
+    try:
+        return await resolve_account(token)
+    except HTTPException:
+        return None
+
+
+# ------------------------------------------------ staff sessions (account + PIN)
+def make_token(user: UserDoc, sid: str) -> str:
     t = now_utc()
     payload = {
         "sub": user.id,
         "role": user.role,
         "code": user.code,
+        "sid": sid,  # account session that unlocked this staff mode
         "iat": t,
         "exp": t + timedelta(minutes=JWT_MINUTES),
     }
@@ -453,11 +569,17 @@ async def resolve_token(token: str) -> UserDoc:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
         doc = await db.users.find_one({"_id": ObjectId(payload["sub"]), "active": True})
+        sid = payload["sid"]
     except Exception:
-        raise HTTPException(status_code=401, detail="Sesión no válida o caducada")
+        raise auth_error("Sesión no válida o caducada", "staff")
     if not doc:
-        raise HTTPException(status_code=401, detail="Sesión no válida o caducada")
-    return UserDoc.from_mongo(doc)
+        raise auth_error("Sesión no válida o caducada", "staff")
+    sess = await db.account_sessions.find_one({"sid": sid})
+    user = UserDoc.from_mongo(doc)
+    # Signing out of the account, or the admin unlinking the profile, ends the staff mode at once.
+    if not sess or _aware(sess["expires_at"]) <= now_utc() or user.account_id != sess["account_id"]:
+        raise auth_error("Sesión no válida o caducada", "staff")
+    return user
 
 
 async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> UserDoc:
@@ -530,6 +652,8 @@ async def upsert_user(role: str, code: str, display_name: str, pin: str, entity_
                 "active": True,
                 "companyId": COMPANY_ID,
                 "pin_hash": hasher.hash(pin),
+                "pin_version": 2,
+                "pin_reset_required": False,
             }
         },
         upsert=True,

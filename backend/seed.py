@@ -1,16 +1,23 @@
 """Idempotent seed data so every panel of GM Conecta is populated from the first second."""
 import random
+import secrets
 from datetime import date, datetime, time, timedelta
 
 from core import (
     COMPANY_ID, Anuncio, Cliente, Derivacion, Ferreteria, FotosObra, LineaPresupuesto, ManoObra, Material, Mensaje,
-    MovimientoFinanciero, Obra, Presupuesto, Recordatorio, Solicitud, TZ, Trabajador, db, insert_doc, logger,
+    MovimientoFinanciero, Obra, Presupuesto, Recordatorio, Solicitud, TZ, Trabajador, db, hasher, insert_doc, logger,
     norm_phone, save_doc, today_local, upsert_user,
 )
 
-ADMIN_PIN = "1234"
-WORKER_PIN = "1111"
-STORE_PIN = "2222"
+# 6-digit PINs (policy v2). Each staff profile has its own; the admin can change them in "Accesos y PIN".
+ADMIN_PIN = "582047"
+WORKER_PINS = {"TR01": "361948", "TR02": "470285", "TR03": "815362", "TR04": "293071", "TR05": "648139"}
+STORE_PINS = {"FE01": "724613", "FE02": "309584", "FE03": "951270", "FE04": "186453"}
+DEFAULT_PINS = {
+    ("admin", "admin"): ADMIN_PIN,
+    **{("trabajador", k.lower()): v for k, v in WORKER_PINS.items()},
+    **{("ferreteria", k.lower()): v for k, v in STORE_PINS.items()},
+}
 U = "https://images.unsplash.com/"
 IMG = {
     "bano1": U + "photo-1584622650111-993a426fbf0a?w=900",
@@ -43,6 +50,7 @@ async def _tx(**kw) -> MovimientoFinanciero:
 
 async def seed_if_needed() -> None:
     await upsert_admin()
+    await migrate_pins()
     if await db.settings.find_one({"_id": COMPANY_ID, "seeded": True}):
         return
     logger.info("Seeding GM Conecta demo data…")
@@ -72,7 +80,7 @@ async def seed_if_needed() -> None:
         w = await insert_doc("workers", Trabajador(codigo=codigo, nombre=nombre, especialidad=esp, telefono=tel,
                                                      disponibilidad=disp, coste_hora_o_servicio=coste, tipo_coste=tipo))
         workers[codigo] = w
-        await upsert_user("trabajador", codigo, nombre, WORKER_PIN, w.id)
+        await upsert_user("trabajador", codigo, nombre, WORKER_PINS[codigo], w.id)
     await db.counters.update_one({"_id": f"{COMPANY_ID}:trabajador"}, {"$set": {"seq": 5}}, upsert=True)
 
     # ------------------------------------------------------------ clients
@@ -272,7 +280,7 @@ async def seed_if_needed() -> None:
             imagen=img, valoracion=val, productos_destacados=prods, porcentaje_comision=com, tarifa_publicidad_mensual=pub, anuncios=ads,
         ))
         stores[codigo] = f
-        await upsert_user("ferreteria", codigo, nombre, STORE_PIN, f.id)
+        await upsert_user("ferreteria", codigo, nombre, STORE_PINS[codigo], f.id)
     await db.counters.update_one({"_id": f"{COMPANY_ID}:ferreteria"}, {"$set": {"seq": 4}}, upsert=True)
 
     deriv_specs = [
@@ -397,3 +405,17 @@ async def seed_if_needed() -> None:
 async def upsert_admin() -> None:
     if not await db.users.find_one({"role": "admin", "code": "admin"}):
         await upsert_user("admin", "admin", "Admin GM Conecta", ADMIN_PIN, None)
+
+
+async def migrate_pins() -> None:
+    """Move old 4-digit PINs to the 6-digit policy. Unknown profiles get a random PIN the admin must reset."""
+    async for doc in db.users.find({"pin_version": {"$ne": 2}}):
+        pin = DEFAULT_PINS.get((doc["role"], doc["code"]))
+        reset = pin is None
+        if reset:
+            pin = f"{secrets.randbelow(10**6):06d}"
+        await db.users.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"pin_hash": hasher.hash(pin), "pin_version": 2, "pin_reset_required": reset}},
+        )
+        logger.info("PIN migrated to 6 digits for %s/%s%s", doc["role"], doc["code"], " (reset required)" if reset else "")

@@ -290,7 +290,7 @@ function CondicionesSheet({ store, onClose, onDone }: { store: Ferreteria | null
   );
 }
 
-const EMPTY = { nombre: "", direccion: "", barrio: "", telefono: "", horario: "", descripcion: "", comision: "5", tarifa: "0", pin: "2222" };
+const EMPTY = { nombre: "", direccion: "", barrio: "", telefono: "", horario: "", descripcion: "", comision: "5", tarifa: "0", pin: "" };
 
 function NuevaFerreteriaSheet({ visible, onClose, onDone }: { visible: boolean; onClose: () => void; onDone: (f: Ferreteria) => void }) {
   const styles = useStyles();
@@ -300,7 +300,7 @@ function NuevaFerreteriaSheet({ visible, onClose, onDone }: { visible: boolean; 
   const mut = useMutation({
     mutationFn: () => {
       if (f.nombre.trim().length < 2 || f.direccion.trim().length < 3) throw new Error("Indica nombre y dirección");
-      if (!/^\d{4,8}$/.test(f.pin)) throw new Error("El PIN debe tener entre 4 y 8 cifras");
+      if (!/^\d{6}$/.test(f.pin)) throw new Error("El PIN debe tener exactamente 6 cifras");
       return api.post<Ferreteria>("/admin/ferreterias", {
         nombre: f.nombre.trim(),
         direccion: f.direccion.trim(),
@@ -336,7 +336,17 @@ function NuevaFerreteriaSheet({ visible, onClose, onDone }: { visible: boolean; 
           <Field label="Publicidad €/mes" value={f.tarifa} onChangeText={set("tarifa")} keyboardType="decimal-pad" testID="new-store-ads-input" />
         </View>
       </View>
-      <Field label="PIN de acceso (modo Ferretería)" value={f.pin} onChangeText={set("pin")} keyboardType="number-pad" maxLength={8} testID="new-store-pin-input" />
+      <Field
+        label="PIN de acceso (6 cifras, modo Ferretería)"
+        value={f.pin}
+        onChangeText={(t) => set("pin")(t.replace(/\D/g, "").slice(0, 6))}
+        keyboardType="number-pad"
+        secureTextEntry
+        maxLength={6}
+        placeholder="••••••"
+        hint="Sin secuencias (123456) ni repeticiones (111111)."
+        testID="new-store-pin-input"
+      />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <PillButton label="Guardar ferretería" icon="check" onPress={() => mut.mutate()} loading={mut.isPending} testID="new-store-submit-button" />
     </Sheet>

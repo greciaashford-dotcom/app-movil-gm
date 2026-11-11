@@ -13,13 +13,14 @@ from pymongo.errors import DuplicateKeyError
 from requests import HTTPError
 from starlette.middleware.cors import CORSMiddleware
 
+from account_routes import router as account_router
 from admin_routes import export_router
 from admin_routes import router as admin_router
 from core import (
-    COMPANY_ID, DUMMY_HASH, Anuncio, Cliente, FileDoc, Ferreteria, Obra, Presupuesto, Solicitud, Trabajador,
-    UserDoc, clear_login_failures, current_user, db, find_docs, get_doc, get_settings, hasher, insert_doc,
-    MAX_ACCOUNT_FAILURES, login_blocked, make_token, mongo_client, next_seq, norm_phone, now_iso, optional_user, record_login_failure,
-    require_roles, save_doc, scoped, to_oid, JWT_MINUTES,
+    COMPANY_ID, DUMMY_HASH, AccountSession, Anuncio, Cliente, FileDoc, Ferreteria, Obra, Presupuesto, Solicitud, Trabajador,
+    UserDoc, check_pin, clear_login_failures, client_ip, current_account, current_user, db, find_docs, get_doc, get_settings,
+    hasher, insert_doc, MAX_PROFILE_FAILURES, login_blocked, make_token, mongo_client, next_seq, norm_phone, now_iso,
+    optional_account, optional_user, record_login_failure, require_roles, save_doc, scoped, to_oid, JWT_MINUTES,
 )
 from email_service import deliver, tpl_alerta_admin, tpl_confirmacion_cliente
 from seed import seed_if_needed
@@ -48,6 +49,15 @@ INDEXES: dict[str, list[IndexModel]] = {
     "messages": [IndexModel([("companyId", ASCENDING), ("solicitud_id", ASCENDING), ("fecha", DESCENDING)], name="sol_fecha")],
     "reminders": [IndexModel([("companyId", ASCENDING), ("fecha", ASCENDING)], name="fecha")],
     "users": [IndexModel([("role", ASCENDING), ("code", ASCENDING)], name="role_code", unique=True)],
+    "accounts": [
+        IndexModel([("email", ASCENDING)], name="email", unique=True),
+        IndexModel([("account_id", ASCENDING)], name="account_id", unique=True),
+    ],
+    "account_sessions": [
+        IndexModel([("token_hash", ASCENDING)], name="token_hash", unique=True),
+        IndexModel([("sid", ASCENDING)], name="sid", unique=True),
+        IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0),
+    ],
     "login_limits": [IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0)],
     "files": [IndexModel([("path", ASCENDING)], name="path", unique=True)],
 }
@@ -118,7 +128,13 @@ def sniff_image(data: bytes) -> Optional[str]:
 
 
 @api.post("/upload")
-async def upload(file: UploadFile = File(...), user: Optional[UserDoc] = Depends(optional_user)):
+async def upload(
+    file: UploadFile = File(...),
+    user: Optional[UserDoc] = Depends(optional_user),
+    acc: Optional[AccountSession] = Depends(optional_account),
+):
+    if not user and not acc:
+        raise HTTPException(status_code=401, detail="Inicia sesión para subir fotos", headers={"X-Auth-Error": "account"})
     content_type = (file.content_type or "").lower()
     if content_type not in ALLOWED_TYPES:
         name = (file.filename or "").lower()
@@ -135,7 +151,7 @@ async def upload(file: UploadFile = File(...), user: Optional[UserDoc] = Depends
     if not sniffed:
         raise HTTPException(status_code=400, detail="El archivo no es una imagen válida")
     content_type = sniffed
-    owner = f"{user.role}-{user.code}" if user else "cliente"
+    owner = f"{user.role}-{user.code}" if user else f"cuenta-{acc.cuenta.account_id}"
     path = f"{APP_NAME}/uploads/{owner}/{uuid.uuid4()}.{ALLOWED_TYPES[content_type]}"
     try:
         result = await run_in_threadpool(put_object, path, data, content_type)
@@ -240,7 +256,7 @@ async def send_request_emails(s: Solicitud) -> None:
 
 
 @api.post("/solicitudes", status_code=201)
-async def crear_solicitud(body: SolicitudIn, response: Response):
+async def crear_solicitud(body: SolicitudIn, response: Response, ctx: AccountSession = Depends(current_account)):
     existing = await db.requests.find_one(scoped({"idempotency_key": body.idempotency_key}))
     if existing:
         response.status_code = 200
@@ -265,6 +281,7 @@ async def crear_solicitud(body: SolicitudIn, response: Response):
         fotografias=fotos,
         idempotency_key=body.idempotency_key,
         cliente_id=cliente.id,
+        cuenta_id=ctx.cuenta.account_id,
     )
     try:
         await insert_doc("requests", s)
@@ -288,8 +305,13 @@ class MineIn(BaseModel):
 
 
 @api.post("/solicitudes/mine")
-async def mis_solicitudes(body: MineIn):
+async def mis_solicitudes(body: MineIn, ctx: Optional[AccountSession] = Depends(optional_account)):
     results = []
+    seen = set()
+    if ctx:
+        for s in await find_docs("requests", Solicitud, {"cuenta_id": ctx.cuenta.account_id}, sort=[("fecha_creacion", -1)], limit=100):
+            seen.add(s.id)
+            results.append(await public_view(s))
     for item in body.items:
         q = scoped({"numero_solicitud": item.numero.strip().upper()})
         if item.key:
@@ -299,7 +321,8 @@ async def mis_solicitudes(body: MineIn):
         else:
             continue
         doc = await db.requests.find_one(q)
-        if doc:
+        if doc and str(doc["_id"]) not in seen:
+            seen.add(str(doc["_id"]))
             results.append(await public_view(Solicitud.from_mongo(doc)))
     results.sort(key=lambda r: r["fecha_creacion"], reverse=True)
     return results
@@ -341,27 +364,51 @@ async def ferreteria_publica(store_id: str):
 
 # ---------------------------------------------------------------- auth
 @api.get("/auth/options")
-async def auth_options():
+async def auth_options(ctx: Optional[AccountSession] = Depends(optional_account)):
+    """Staff profiles a signed-in account can pick. Profiles linked to another account are hidden."""
     workers = await find_docs("workers", Trabajador, {"activo": True}, sort=[("nombre", 1)])
     stores = await find_docs("hardware_stores", Ferreteria, {"activa": True}, sort=[("nombre", 1)])
-    return {
-        "trabajadores": [{"codigo": w.codigo, "nombre": w.nombre, "especialidad": w.especialidad} for w in workers],
-        "ferreterias": [{"codigo": f.codigo, "nombre": f.nombre} for f in stores],
+    links = {
+        (d["role"], d["code"]): d.get("account_id")
+        async for d in db.users.find({"role": {"$in": ["trabajador", "ferreteria"]}}, {"role": 1, "code": 1, "account_id": 1})
     }
+    mine = ctx.cuenta.account_id if ctx else None
+
+    def state(role: str, code: str):
+        owner = links.get((role, code.lower()))
+        return None if owner and owner != mine else bool(owner and owner == mine)
+
+    trabajadores, ferreterias = [], []
+    for w in workers:
+        st = state("trabajador", w.codigo)
+        if st is not None:
+            trabajadores.append({"codigo": w.codigo, "nombre": w.nombre, "especialidad": w.especialidad, "mio": st})
+    for f in stores:
+        st = state("ferreteria", f.codigo)
+        if st is not None:
+            ferreterias.append({"codigo": f.codigo, "nombre": f.nombre, "mio": st})
+    return {"trabajadores": trabajadores, "ferreterias": ferreterias}
+
+
+def mask_email(email: str) -> str:
+    name, _, domain = email.partition("@")
+    return f"{name[:2]}•••@{domain}" if domain else "otra cuenta"
 
 
 class LoginIn(BaseModel):
     role: Literal["admin", "trabajador", "ferreteria"]
     code: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
-    pin: str = Field(min_length=4, max_length=12)
+    pin: str = Field(min_length=1, max_length=12)
 
 
 @api.post("/auth/login")
-async def login(body: LoginIn, request: Request):
-    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+async def login(body: LoginIn, request: Request, ctx: AccountSession = Depends(current_account)):
+    """Second step: a signed-in account unlocks a staff mode with its 6-digit PIN."""
+    ip = client_ip(request)
     key = f"{ip}:{body.role}:{body.code.lower()}"
+    own_key = f"pin:{ctx.cuenta.account_id}:{body.role}:{body.code.lower()}"
     account_key = f"account:{body.role}:{body.code.lower()}"
-    if await login_blocked(key) or await login_blocked(account_key):
+    if await login_blocked(key) or await login_blocked(own_key) or await login_blocked(account_key):
         raise HTTPException(status_code=429, detail="Demasiados intentos. Espera 15 minutos e inténtalo de nuevo.")
     doc = await db.users.find_one({"role": body.role, "code": body.code.lower(), "active": True})
     user = UserDoc.from_mongo(doc) if doc else None
@@ -369,14 +416,23 @@ async def login(body: LoginIn, request: Request):
         valid = hasher.verify(body.pin, user.pin_hash if user else DUMMY_HASH)
     except Exception:
         valid = False
-    if not user or not valid:
+    if not user or not valid or user.pin_reset_required:
         await record_login_failure(key)
-        await record_login_failure(account_key, MAX_ACCOUNT_FAILURES)
+        await record_login_failure(own_key)
+        await record_login_failure(account_key, MAX_PROFILE_FAILURES)
         raise HTTPException(status_code=401, detail="PIN incorrecto")
     await clear_login_failures(key)
-    await clear_login_failures(account_key)
+    await clear_login_failures(own_key)
+    if user.account_id and user.account_id != ctx.cuenta.account_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Este perfil está vinculado a otra cuenta ({mask_email(user.account_email)}). Pide al administrador que lo desvincule.",
+        )
+    if not user.account_id:
+        await db.users.update_one({"_id": doc["_id"]}, {"$set": {"account_id": ctx.cuenta.account_id, "account_email": ctx.cuenta.email}})
+        user.account_id, user.account_email = ctx.cuenta.account_id, ctx.cuenta.email
     return {
-        "access_token": make_token(user),
+        "access_token": make_token(user, ctx.sid),
         "token_type": "bearer",
         "expires_in": JWT_MINUTES * 60,
         "role": user.role,
@@ -384,6 +440,26 @@ async def login(body: LoginIn, request: Request):
         "display_name": user.display_name,
         "entity_id": user.entity_id,
     }
+
+
+class CambiarPinIn(BaseModel):
+    pin_actual: str = Field(min_length=1, max_length=12)
+    pin_nuevo: str = Field(min_length=1, max_length=12)
+
+
+@api.post("/auth/cambiar-pin")
+async def cambiar_pin(body: CambiarPinIn, user: UserDoc = Depends(current_user)):
+    try:
+        valid = hasher.verify(body.pin_actual, user.pin_hash)
+    except Exception:
+        valid = False
+    if not valid:
+        raise HTTPException(status_code=400, detail="El PIN actual no es correcto")
+    check_pin(body.pin_nuevo)
+    if body.pin_nuevo == body.pin_actual:
+        raise HTTPException(status_code=422, detail="El nuevo PIN debe ser distinto del actual")
+    await db.users.update_one({"_id": to_oid(user.id)}, {"$set": {"pin_hash": hasher.hash(body.pin_nuevo), "pin_version": 2, "pin_reset_required": False}})
+    return {"ok": True}
 
 
 @api.get("/auth/me")
@@ -541,6 +617,7 @@ async def ferreteria_anuncio_delete(anuncio_id: str, user: UserDoc = Depends(req
 
 # ---------------------------------------------------------------- wiring
 app.include_router(api)
+app.include_router(account_router)
 app.include_router(admin_router)
 app.include_router(export_router)
 
@@ -550,6 +627,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Auth-Error"],
 )
 
 

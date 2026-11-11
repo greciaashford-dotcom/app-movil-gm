@@ -27,15 +27,15 @@ export default function ContactoScreen() {
   const insets = useSafeAreaInsets();
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const { open } = useDrawer();
-  const { role } = useAuth();
+  const { role, account, signOut } = useAuth();
   const toast = useToast();
   const [perfil, setPerfil] = useState<Perfil>(EMPTY_PERFIL);
   const config = useQuery({ queryKey: ["config-public"], queryFn: () => api.get<PublicConfig>("/config/public") });
   const tel = config.data?.telefono || COMPANY_PHONE;
 
   useEffect(() => {
-    getPerfil().then(setPerfil);
-  }, []);
+    getPerfil().then((p) => setPerfil({ ...p, nombre: p.nombre || account?.nombre || "", correo: p.correo || account?.email || "" }));
+  }, [account]);
 
   const guardar = async () => {
     if (perfil.correo && !EMAIL_RE.test(perfil.correo)) {
@@ -95,6 +95,24 @@ export default function ContactoScreen() {
         </Card>
 
         <Text style={styles.section}>Mi cuenta</Text>
+        {account ? (
+          <Card style={styles.gap} testID="account-card">
+            <View style={styles.row}>
+              <View style={styles.badgeIcon}>
+                <Text style={styles.initial}>{(account.nombre || account.email).slice(0, 1).toUpperCase()}</Text>
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.company} numberOfLines={1} testID="account-card-name">
+                  {account.nombre}
+                </Text>
+                <Text style={styles.meta} numberOfLines={1} testID="account-card-email">
+                  {account.email} · {account.proveedores.includes("google") ? "Google" : "correo y contraseña"}
+                </Text>
+              </View>
+            </View>
+            <PillButton label="Cerrar sesión" icon="log-out" variant="dangerOutline" small onPress={() => void signOut()} testID="account-logout-button" />
+          </Card>
+        ) : null}
         <Card style={styles.gap}>
           <Text style={styles.meta}>Guarda tus datos para rellenar más rápido tus solicitudes. Se quedan solo en este móvil.</Text>
           <Field label="Nombre completo" value={perfil.nombre} onChangeText={set("nombre")} placeholder="Tu nombre" testID="account-name-input" />
@@ -128,6 +146,7 @@ const useStyles = makeStyles((c) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   flex: { flex: 1 },
   badgeIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: c.brand, alignItems: "center", justifyContent: "center" },
+  initial: { fontFamily: fonts.black, fontSize: 20, color: c.brandPrimary },
   company: { fontFamily: fonts.extraBold, fontSize: 17, color: c.brandDeep },
   meta: { fontFamily: fonts.body, fontSize: 13, color: c.muted, lineHeight: 18 },
   line: { fontFamily: fonts.bodyMedium, fontSize: 14.5, color: c.textDark, flexShrink: 1 },

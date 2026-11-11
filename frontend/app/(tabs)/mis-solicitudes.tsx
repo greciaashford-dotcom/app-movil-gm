@@ -37,7 +37,7 @@ export default function MisSolicitudes() {
   const query = useQuery({
     queryKey: ["mis-solicitudes", items],
     queryFn: () => api.post<SolicitudPublica[]>("/solicitudes/mine", { items }),
-    enabled: !!items && items.length > 0,
+    enabled: items !== null,
   });
 
   const buscar = async () => {
@@ -71,9 +71,9 @@ export default function MisSolicitudes() {
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.brand} />}
       >
         <Text style={styles.title}>Mis solicitudes</Text>
-        <Text style={styles.sub}>Las solicitudes enviadas desde este móvil y su estado actualizado.</Text>
+        <Text style={styles.sub}>Las solicitudes de tu cuenta y de este móvil, con su estado actualizado.</Text>
 
-        {items === null || (items.length > 0 && query.isLoading) ? (
+        {items === null || query.isLoading ? (
           <LoadingView />
         ) : query.isError ? (
           <ErrorView message={errorMessage(query.error)} onRetry={() => query.refetch()} />

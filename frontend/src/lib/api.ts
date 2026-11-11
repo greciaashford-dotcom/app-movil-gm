@@ -2,16 +2,30 @@ import { uploadForm } from "@/src/utils/upload";
 
 export const API_URL = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
+/** Staff token (Admin / Trabajador / Ferretería mode, unlocked with the PIN). */
 let token: string | null = null;
-let onUnauthorized: (() => void) | null = null;
+/** App account token (email or Google sign-in). Sent on every request. */
+let accountToken: string | null = null;
+export type AuthFailure = "account" | "staff";
+let onUnauthorized: ((kind: AuthFailure) => void) | null = null;
 
 export const setToken = (t: string | null) => {
   token = t;
 };
 export const getToken = () => token;
-export const setUnauthorizedHandler = (fn: (() => void) | null) => {
+export const setAccountToken = (t: string | null) => {
+  accountToken = t;
+};
+export const setUnauthorizedHandler = (fn: ((kind: AuthFailure) => void) | null) => {
   onUnauthorized = fn;
 };
+
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (token) h.Authorization = `Bearer ${token}`;
+  if (accountToken) h["X-Account-Token"] = accountToken;
+  return h;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -33,9 +47,8 @@ function detailToMessage(data: any, status: number): string {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", ...authHeaders() };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (token) headers.Authorization = `Bearer ${token}`;
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -56,7 +69,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     }
   }
   if (!res.ok) {
-    if (res.status === 401 && token && onUnauthorized) onUnauthorized();
+    // Only an expired/invalid session (tagged by the server) signs out; a wrong PIN or password never does.
+    const kind = res.headers.get("x-auth-error");
+    if (res.status === 401 && (kind === "account" || kind === "staff") && onUnauthorized) onUnauthorized(kind);
     throw new ApiError(detailToMessage(data, res.status), res.status);
   }
   return data as T;
@@ -88,7 +103,7 @@ export async function uploadImage(asset: PickedAsset): Promise<string> {
           mimeType: asset.mimeType || "image/jpeg",
         },
       },
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers: authHeaders(),
     })) as unknown as Response;
   } catch {
     throw new ApiError("No se pudo subir la foto. Revisa tu conexión.", 0);

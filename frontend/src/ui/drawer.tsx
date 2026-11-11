@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "expo-router";
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { SlideInRight } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,6 +38,7 @@ const NAV: Record<Role, NavItem[]> = {
     { label: "Agenda", icon: "calendar-days", href: "/admin/agenda" },
     { label: "Gestoría", icon: "calculator", href: "/admin/gestoria" },
     { label: "Ferreterías y comisiones", icon: "store", href: "/admin/ferreterias" },
+    { label: "Accesos y PIN", icon: "key-round", href: "/admin/accesos" },
     { label: "Configuración", icon: "settings", href: "/admin/configuracion" },
   ],
   trabajador: [{ label: "Mis trabajos", icon: "hard-hat", href: "/trabajador" }],
@@ -75,11 +76,13 @@ function AppDrawer({ visible, onClose }: { visible: boolean; onClose: () => void
   const { colors } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const { role, session, logout } = useAuth();
+  const { role, session, logout, account, signOut } = useAuth();
   const [pinRole, setPinRole] = useState<StaffRole | null>(null);
+  const [changingPin, setChangingPin] = useState(false);
 
   const closeAll = () => {
     setPinRole(null);
+    setChangingPin(false);
     onClose();
   };
 
@@ -123,8 +126,25 @@ function AppDrawer({ visible, onClose }: { visible: boolean; onClose: () => void
                 router.dismissTo(roleHome(r));
               }}
             />
+          ) : changingPin ? (
+            <ChangePinForm onDone={() => setChangingPin(false)} />
           ) : (
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+              {account ? (
+                <View style={styles.accountCard} testID="drawer-account">
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{(account.nombre || account.email).slice(0, 1).toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.accountName} numberOfLines={1} testID="drawer-account-name">
+                      {account.nombre}
+                    </Text>
+                    <Text style={styles.accountEmail} numberOfLines={1} testID="drawer-account-email">
+                      {account.email}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
               <Text style={styles.groupTitle}>Modo / Rol Actual</Text>
               <View style={styles.roleGrid} testID="role-selector">
                 {(Object.keys(ROLE_LABELS) as Role[]).map((r) => {
@@ -148,7 +168,7 @@ function AppDrawer({ visible, onClose }: { visible: boolean; onClose: () => void
               </View>
               {session ? (
                 <Text style={styles.sessionText} testID="drawer-session-name">
-                  Sesión: {session.display_name}
+                  Modo activo: {session.display_name}
                 </Text>
               ) : null}
 
@@ -171,19 +191,34 @@ function AppDrawer({ visible, onClose }: { visible: boolean; onClose: () => void
               <View style={styles.footer}>
                 <PillButton label={`Llamar ${formatPhone(COMPANY_PHONE)}`} icon="phone" variant="call" small onPress={() => Linking.openURL(telLink(COMPANY_PHONE))} testID="drawer-call-button" />
                 {session ? (
-                  <PillButton
-                    label="Cerrar sesión"
-                    icon="log-out"
-                    variant="outline"
-                    small
-                    testID="drawer-logout-button"
-                    onPress={async () => {
-                      await logout();
-                      closeAll();
-                      router.dismissTo("/");
-                    }}
-                  />
+                  <>
+                    <PillButton label="Cambiar mi PIN" icon="key-round" variant="ghost" small testID="drawer-change-pin-button" onPress={() => setChangingPin(true)} />
+                    <PillButton
+                      label={`Salir del modo ${ROLE_LABELS[session.role]}`}
+                      icon="arrow-left-right"
+                      variant="outline"
+                      small
+                      testID="drawer-logout-button"
+                      onPress={async () => {
+                        await logout();
+                        closeAll();
+                        router.dismissTo("/");
+                      }}
+                    />
+                  </>
                 ) : null}
+                <PillButton
+                  label="Cerrar sesión"
+                  icon="log-out"
+                  variant="dangerOutline"
+                  small
+                  testID="drawer-signout-button"
+                  onPress={async () => {
+                    closeAll();
+                    // The root gate takes the user to the login screen.
+                    await signOut();
+                  }}
+                />
               </View>
             </ScrollView>
           )}
@@ -196,26 +231,34 @@ function AppDrawer({ visible, onClose }: { visible: boolean; onClose: () => void
 function PinForm({ role, onCancel, onSuccess }: { role: StaffRole; onCancel: () => void; onSuccess: (r: StaffRole) => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { login } = useAuth();
+  const { login, account } = useAuth();
   const [code, setCode] = useState<string>(role === "admin" ? "admin" : "");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const needsEntity = role !== "admin";
+  type Opt = { codigo: string; nombre: string; mio: boolean };
   const options = useQuery({
-    queryKey: ["auth-options"],
-    queryFn: () => api.get<{ trabajadores: { codigo: string; nombre: string; especialidad: string }[]; ferreterias: { codigo: string; nombre: string }[] }>("/auth/options"),
+    queryKey: ["auth-options", account?.account_id],
+    queryFn: () => api.get<{ trabajadores: (Opt & { especialidad: string })[]; ferreterias: Opt[] }>("/auth/options"),
     enabled: needsEntity,
   });
   const entities =
     role === "trabajador"
-      ? (options.data?.trabajadores ?? []).map((t) => ({ code: t.codigo, name: t.nombre, sub: t.especialidad }))
-      : (options.data?.ferreterias ?? []).map((f) => ({ code: f.codigo, name: f.nombre, sub: f.codigo }));
+      ? (options.data?.trabajadores ?? []).map((t) => ({ code: t.codigo, name: t.nombre, sub: t.mio ? `${t.especialidad} · vinculado a tu cuenta` : t.especialidad, mio: t.mio }))
+      : (options.data?.ferreterias ?? []).map((f) => ({ code: f.codigo, name: f.nombre, sub: f.mio ? `${f.codigo} · vinculada a tu cuenta` : f.codigo, mio: f.mio }));
+
+  // Preselect the profile already linked to this account.
+  const mine = entities.filter((e) => e.mio);
+  const mineCode = mine.length === 1 ? mine[0].code : "";
+  useEffect(() => {
+    if (mineCode) setCode((c) => c || mineCode);
+  }, [mineCode]);
 
   const submit = async () => {
     setError(null);
     if (!code) return setError(role === "trabajador" ? "Elige tu nombre" : "Elige tu ferretería");
-    if (pin.length < 4) return setError("Introduce el PIN de 4 cifras");
+    if (pin.length !== 6) return setError("Introduce tu PIN de 6 cifras");
     setLoading(true);
     try {
       const s = await login(role, code, pin);
@@ -235,11 +278,16 @@ function PinForm({ role, onCancel, onSuccess }: { role: StaffRole; onCancel: () 
         <Text style={styles.backText}>Volver</Text>
       </Pressable>
       <Text style={styles.pinTitle}>Acceso {ROLE_LABELS[role]}</Text>
-      <Text style={styles.pinSub}>Este modo está protegido. Introduce tu PIN de acceso.</Text>
+      <Text style={styles.pinSub}>Protección extra: además de tu cuenta, este modo pide tu PIN personal de 6 cifras.</Text>
       {needsEntity ? (
         <View style={styles.entityList}>
           <Text style={styles.groupTitle}>{role === "trabajador" ? "¿Quién eres?" : "Tu ferretería"}</Text>
           {options.isLoading ? <ActivityIndicator color={colors.brandPrimary} /> : null}
+          {!options.isLoading && entities.length === 0 ? (
+            <Text style={styles.pinSub} testID="pin-no-profiles">
+              No hay perfiles disponibles para tu cuenta. Pide al administrador que te dé acceso.
+            </Text>
+          ) : null}
           {entities.map((e) => {
             const active = e.code === code;
             return (
@@ -259,15 +307,15 @@ function PinForm({ role, onCancel, onSuccess }: { role: StaffRole; onCancel: () 
           })}
         </View>
       ) : null}
-      <Text style={styles.groupTitle}>PIN</Text>
+      <Text style={styles.groupTitle}>PIN (6 cifras)</Text>
       <TextInput
         testID="pin-input"
         value={pin}
-        onChangeText={(t) => setPin(t.replace(/\D/g, "").slice(0, 8))}
+        onChangeText={(t) => setPin(t.replace(/\D/g, "").slice(0, 6))}
         keyboardType="number-pad"
         secureTextEntry
-        maxLength={8}
-        placeholder="••••"
+        maxLength={6}
+        placeholder="••••••"
         placeholderTextColor={colors.pillBorder}
         style={styles.pinInput}
         onSubmitEditing={submit}
@@ -279,6 +327,84 @@ function PinForm({ role, onCancel, onSuccess }: { role: StaffRole; onCancel: () 
         </Text>
       ) : null}
       <PillButton label="Entrar" icon="key-round" onPress={submit} loading={loading} testID="pin-submit-button" />
+    </ScrollView>
+  );
+}
+
+function ChangePinForm({ onDone }: { onDone: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const { changePin } = useAuth();
+  const [actual, setActual] = useState("");
+  const [nuevo, setNuevo] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  const clean = (t: string) => t.replace(/\D/g, "").slice(0, 6);
+
+  const submit = async () => {
+    setError(null);
+    if (actual.length !== 6) return setError("Introduce tu PIN actual de 6 cifras");
+    if (nuevo.length !== 6) return setError("El nuevo PIN debe tener 6 cifras");
+    if (nuevo !== repetir) return setError("Los PIN nuevos no coinciden");
+    setLoading(true);
+    try {
+      await changePin(actual, nuevo);
+      setDone(true);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pinField = (label: string, value: string, onChange: (v: string) => void, testID: string) => (
+    <>
+      <Text style={styles.groupTitle}>{label}</Text>
+      <TextInput
+        testID={testID}
+        value={value}
+        onChangeText={(t) => onChange(clean(t))}
+        keyboardType="number-pad"
+        secureTextEntry
+        maxLength={6}
+        placeholder="••••••"
+        placeholderTextColor={colors.pillBorder}
+        style={styles.pinInput}
+      />
+    </>
+  );
+
+  return (
+    <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" testID="change-pin-form">
+      <Pressable onPress={onDone} style={styles.backRow} testID="change-pin-back-button" hitSlop={8}>
+        <Icon name="chevron-left" size={20} color={colors.brandPrimary} />
+        <Text style={styles.backText}>Volver</Text>
+      </Pressable>
+      <Text style={styles.pinTitle}>Cambiar mi PIN</Text>
+      {done ? (
+        <>
+          <View style={styles.doneRow} testID="change-pin-success">
+            <Icon name="circle-check" size={22} color={colors.brandPrimary} />
+            <Text style={styles.doneText}>Tu PIN se ha actualizado. Úsalo la próxima vez que entres en este modo.</Text>
+          </View>
+          <PillButton label="Listo" icon="check" onPress={onDone} testID="change-pin-done-button" />
+        </>
+      ) : (
+        <>
+          <Text style={styles.pinSub}>6 cifras, sin secuencias (123456) ni repeticiones (111111).</Text>
+          {pinField("PIN actual", actual, setActual, "change-pin-current-input")}
+          {pinField("Nuevo PIN", nuevo, setNuevo, "change-pin-new-input")}
+          {pinField("Repite el nuevo PIN", repetir, setRepetir, "change-pin-confirm-input")}
+          {error ? (
+            <Text style={styles.pinError} testID="change-pin-error">
+              {error}
+            </Text>
+          ) : null}
+          <PillButton label="Guardar nuevo PIN" icon="check" onPress={submit} loading={loading} testID="change-pin-submit-button" />
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -335,4 +461,11 @@ const useStyles = makeStyles((c) => ({
     color: c.brandDeep,
   },
   pinError: { fontFamily: fonts.bodySemi, fontSize: 13, color: c.brandPrimary, textAlign: "center" },
+  accountCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.brand, borderRadius: 18, padding: 12, marginTop: 4 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: c.brandPrimary, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontFamily: fonts.black, fontSize: 18, color: c.onBrandPrimary },
+  accountName: { fontFamily: fonts.bodySemi, fontSize: 15, color: c.onBrand },
+  accountEmail: { fontFamily: fonts.body, fontSize: 12.5, color: c.pillBorder },
+  doneRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: c.brand, borderRadius: 14, padding: 12 },
+  doneText: { flex: 1, fontFamily: fonts.bodySemi, fontSize: 14, color: c.onBrand, lineHeight: 20 },
 }));
