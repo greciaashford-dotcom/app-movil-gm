@@ -16,6 +16,7 @@ from starlette.middleware.cors import CORSMiddleware
 from account_routes import router as account_router
 from admin_routes import export_router
 from admin_routes import router as admin_router
+from avisos import eventos_obra, lanzar_avisos
 from core import (
     COMPANY_ID, DUMMY_HASH, AccountSession, Anuncio, Cliente, FileDoc, Ferreteria, Obra, Presupuesto, Solicitud, Trabajador,
     UserDoc, check_pin, clear_login_failures, client_ip, current_account, current_user, db, find_docs, get_doc, get_settings,
@@ -56,6 +57,10 @@ INDEXES: dict[str, list[IndexModel]] = {
     "account_sessions": [
         IndexModel([("token_hash", ASCENDING)], name="token_hash", unique=True),
         IndexModel([("sid", ASCENDING)], name="sid", unique=True),
+        IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0),
+    ],
+    "password_resets": [
+        IndexModel([("email", ASCENDING)], name="email", unique=True),
         IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0),
     ],
     "login_limits": [IndexModel([("expires_at", ASCENDING)], name="ttl", expireAfterSeconds=0)],
@@ -212,6 +217,7 @@ async def public_view(s: Solicitud) -> dict:
         "descripcion": s.descripcion,
         "nombre_cliente": s.nombre_cliente,
         "num_fotos": len(s.fotografias),
+        "descuento_bienvenida": s.descuento_bienvenida,
         "presupuesto": None,
         "obra": None,
     }
@@ -219,7 +225,7 @@ async def public_view(s: Solicitud) -> dict:
         q = await db.quotes.find_one(scoped({"_id": to_oid(s.presupuesto_id)}))
         if q:
             q = Presupuesto.from_mongo(q)
-            data["presupuesto"] = {"numero": q.numero_presupuesto, "total": q.total, "estado": q.estado}
+            data["presupuesto"] = {"numero": q.numero_presupuesto, "total": q.total, "estado": q.estado, "descuento_importe": q.descuento_importe}
     if s.obra_id:
         o = await db.projects.find_one(scoped({"_id": to_oid(s.obra_id)}))
         if o:
@@ -266,6 +272,15 @@ async def crear_solicitud(body: SolicitudIn, response: Response, ctx: AccountSes
         if await db.files.find_one({"path": p, "is_deleted": False}):
             fotos.append(p)
     cliente = await upsert_cliente(body.nombre_cliente.strip(), body.telefono_cliente.strip(), str(body.correo_cliente), body.direccion.strip())
+    settings = await get_settings()
+    # Welcome discount: only the very first request of each account.
+    primera = False
+    if settings.descuento_bienvenida > 0 and not await db.requests.find_one(scoped({"cuenta_id": ctx.cuenta.account_id})):
+        # Atomic claim, so two requests sent at the same time cannot both get it.
+        claim = await db.accounts.update_one(
+            {"account_id": ctx.cuenta.account_id, "descuento_usado": {"$ne": True}}, {"$set": {"descuento_usado": True}}
+        )
+        primera = claim.modified_count == 1
     seq = await next_seq("solicitud")
     s = Solicitud(
         numero_solicitud=f"GC-{seq:06d}",
@@ -282,6 +297,7 @@ async def crear_solicitud(body: SolicitudIn, response: Response, ctx: AccountSes
         idempotency_key=body.idempotency_key,
         cliente_id=cliente.id,
         cuenta_id=ctx.cuenta.account_id,
+        descuento_bienvenida=settings.descuento_bienvenida if primera else 0,
     )
     try:
         await insert_doc("requests", s)
@@ -528,10 +544,13 @@ class AvanceIn(BaseModel):
 @api.patch("/trabajador/obras/{obra_id}/avance")
 async def trabajador_avance(obra_id: str, body: AvanceIn, user: UserDoc = Depends(require_worker)):
     o = await _worker_obra(obra_id, user)
+    estado_antes, avance_antes = o.estado, o.porcentaje_avance
     o.porcentaje_avance = body.porcentaje_avance
     if o.estado == "planificada" and body.porcentaje_avance > 0:
         o.estado = "en_curso"
+    eventos = eventos_obra(o, estado_antes, avance_antes)
     await save_doc("projects", o)
+    lanzar_avisos(o, eventos)
     return worker_view(o, await _worker_names())
 
 

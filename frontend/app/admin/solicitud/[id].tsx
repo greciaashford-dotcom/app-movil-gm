@@ -33,6 +33,7 @@ const TIPO_MSG: Record<string, string> = {
   alerta_admin: "Alerta al admin",
   respuesta: "Respuesta",
   presupuesto: "Presupuesto",
+  aviso_obra: "Aviso de obra",
 };
 
 export default function AdminSolicitudDetalle() {
@@ -99,6 +100,15 @@ export default function AdminSolicitudDetalle() {
             <Icon name="siren" size={20} color={colors.urgent} />
             <Text style={styles.urgentText}>Urgencia 24 horas · {fechaHora(s.fecha_creacion)}</Text>
           </View>
+        ) : null}
+
+        {s.descuento_bienvenida ? (
+          <Card tone="yellow" style={styles.discount} testID="admin-request-welcome-discount">
+            <Icon name="gift" size={20} color={colors.brandDeep} />
+            <Text style={styles.discountText}>
+              Primera solicitud de una cuenta nueva: descuento de bienvenida del {s.descuento_bienvenida} %. Se aplicará al crear el presupuesto.
+            </Text>
+          </Card>
         ) : null}
 
         <Card style={styles.gap}>
@@ -233,6 +243,8 @@ const useStyles = makeStyles((c) => ({
   btnRow: { flexDirection: "row", gap: 10 },
   urgent: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.urgentBg, borderWidth: 2, borderColor: c.urgentBorder, borderRadius: 18, padding: 12 },
   urgentText: { fontFamily: fonts.bodyBold, fontSize: 14, color: c.urgentTitle },
+  discount: { flexDirection: "row", alignItems: "center", gap: 10 },
+  discountText: { flex: 1, fontFamily: fonts.bodySemi, fontSize: 13.5, lineHeight: 19, color: c.textDark },
   client: { fontFamily: fonts.extraBold, fontSize: 18, color: c.brandDeep, flex: 1 },
   line: { fontFamily: fonts.body, fontSize: 14, color: c.textDark, flex: 1 },
   desc: { fontFamily: fonts.body, fontSize: 14.5, lineHeight: 21, color: c.textDark },

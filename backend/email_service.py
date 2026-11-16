@@ -217,12 +217,17 @@ def tpl_confirmacion_cliente(s, settings: CompanySettings) -> tuple[str, str, st
         f"Hola {s.nombre_cliente}, gracias por confiar en GM Conecta. Nuestro equipo revisará tu solicitud "
         f"{s.numero_solicitud} ({s.servicio}) y te contactará en breve con un presupuesto personalizado."
     )
+    descuento = (
+        _p(f"🎁 Como es tu primera solicitud, aplicaremos un {s.descuento_bienvenida:g} % de descuento de bienvenida en este presupuesto.")
+        if s.descuento_bienvenida else ""
+    )
     html = _layout(
         "¡Hemos recibido tu solicitud!",
         [
             _p(f"Hola {s.nombre_cliente},"),
             _p("Gracias por confiar en GM Conecta. Nuestro equipo revisará la información y se pondrá en contacto contigo en breve para enviarte un presupuesto personalizado."),
             _tabla([("Nº de solicitud", s.numero_solicitud), ("Servicio", s.servicio), ("Dirección", s.direccion)]),
+            descuento,
             _p("¿Qué ocurre ahora? Revisamos tu solicitud, te contactamos si necesitamos más detalles y te enviamos un presupuesto sin compromiso."),
         ],
         settings,
@@ -282,19 +287,83 @@ def tpl_presupuesto(q, settings: CompanySettings) -> tuple[str, str, str]:
     )
     tabla = f'<table role="presentation" width="100%" style="margin:8px 0 16px">{lineas}</table>'
     texto = f"Presupuesto {q.numero_presupuesto} – {q.titulo}. Total {eur(q.total)} (IVA {q.iva_porcentaje:g}% incluido)."
+    filas = []
+    if q.descuento_importe:
+        filas += [("Importe", eur(q.importe_lineas)), (f"Descuento de bienvenida ({q.descuento_porcentaje:g}%)", f"- {eur(q.descuento_importe)}")]
+    filas += [
+        ("Base imponible", eur(q.base_imponible)),
+        (f"IVA ({q.iva_porcentaje:g}%)", eur(q.iva_importe)),
+        ("Total", eur(q.total)),
+    ]
     html = _layout(
-        f"Presupuesto {q.numero_presupuesto}",
+        f"Tu presupuesto está listo · {q.numero_presupuesto}",
         [
-            _p(f"Hola {q.cliente_nombre}, te enviamos el presupuesto solicitado: {q.titulo}."),
+            _p(f"Hola {q.cliente_nombre}, ya tienes listo el presupuesto que nos pediste: {q.titulo}."),
             tabla,
-            _tabla([
-                ("Base imponible", eur(q.base_imponible)),
-                (f"IVA ({q.iva_porcentaje:g}%)", eur(q.iva_importe)),
-                ("Total", eur(q.total)),
-            ]),
+            _tabla(filas),
             _p(q.notas) if q.notas else "",
-            _p("Si estás de acuerdo, responde a este correo o llámanos y empezamos a organizar la obra."),
+            _p("Si estás de acuerdo, responde a este correo o llámanos y empezamos a organizar la obra. También puedes seguir su estado en la app GM Conecta, en «Mis solicitudes»."),
         ],
         settings,
     )
     return asunto, html, texto
+
+
+def _fecha_es(iso: str) -> str:
+    try:
+        y, m, d = iso[:10].split("-")
+        return f"{d}/{m}/{y}"
+    except ValueError:
+        return iso
+
+
+AVISOS_OBRA = {
+    "planificada": ("Tu obra está programada", "Ya hemos organizado tu obra «{titulo}». Empezaremos el {inicio} y la fecha prevista de finalización es el {fin}."),
+    "en_curso": ("Tu obra ha comenzado", "Nuestro equipo ya está trabajando en «{titulo}». Te iremos avisando de cómo avanza."),
+    "reanudada": ("Retomamos tu obra", "Hemos retomado los trabajos de «{titulo}». Te seguiremos avisando de cómo avanza."),
+    "pausada": ("Tu obra está en pausa", "Hemos pausado temporalmente los trabajos de «{titulo}». Te avisaremos en cuanto los retomemos."),
+    "avance": ("Tu obra va por el {pct} %", "La obra «{titulo}» avanza según lo previsto: ya llevamos un {pct} % completado."),
+    "finalizada": ("¡Tu obra ha terminado!", "Hemos finalizado «{titulo}». Gracias por confiar en GM Conecta. Si tienes cualquier duda sobre el trabajo, llámanos."),
+}
+ESTADO_OBRA_TXT = {"planificada": "Planificada", "en_curso": "En curso", "pausada": "Pausada", "finalizada": "Finalizada"}
+
+
+def tpl_aviso_obra(o, evento: str, nombre: str, settings: CompanySettings) -> tuple[str, str, str]:
+    clave, pct = (("avance", evento.split("_", 1)[1]) if evento.startswith("avance_") else (evento, str(o.porcentaje_avance)))
+    titulo_tpl, texto_tpl = AVISOS_OBRA[clave]
+    datos = {"titulo": o.titulo, "inicio": _fecha_es(o.fecha_inicio), "fin": _fecha_es(o.fecha_fin_prevista), "pct": pct}
+    titulo = titulo_tpl.format(**datos)
+    cuerpo = texto_tpl.format(**datos)
+    asunto = f"GM Conecta · {titulo} ({o.numero_obra})"
+    html = _layout(
+        titulo,
+        [
+            _p(f"Hola {nombre},"),
+            _p(cuerpo),
+            _tabla([
+                ("Nº de obra", o.numero_obra),
+                ("Dirección", o.direccion),
+                ("Estado", ESTADO_OBRA_TXT.get(o.estado, o.estado)),
+                ("Avance", f"{o.porcentaje_avance} %"),
+            ]),
+            _p("Puedes seguir el avance en la app GM Conecta, en «Mis solicitudes»."),
+        ],
+        settings,
+    )
+    return asunto, html, f"{titulo}. {cuerpo}"
+
+
+def tpl_codigo_recuperacion(nombre: str, codigo: str, settings: CompanySettings) -> tuple[str, str, str]:
+    asunto = "GM Conecta · Tu código para cambiar la contraseña"
+    html = _layout(
+        "Cambia tu contraseña",
+        [
+            _p(f"Hola {nombre},"),
+            _p("Has pedido cambiar la contraseña de tu cuenta de GM Conecta. Escribe este código en la app:"),
+            f'<p style="margin:8px 0 16px;font-size:34px;font-weight:900;letter-spacing:8px;color:#002B55">{escape(codigo)}</p>',
+            _p("El código caduca en 15 minutos. Si no lo has pedido tú, ignora este correo: tu contraseña no cambiará."),
+        ],
+        settings,
+    )
+    # The code is never stored in the message history.
+    return asunto, html, "Código para cambiar la contraseña enviado (el código no se guarda en el historial)."

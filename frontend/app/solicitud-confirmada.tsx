@@ -20,7 +20,8 @@ export default function SolicitudConfirmada() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
-  const p = useLocalSearchParams<{ numero?: string; fecha?: string; servicio?: string; direccion?: string }>();
+  const p = useLocalSearchParams<{ numero?: string; fecha?: string; servicio?: string; direccion?: string; descuento?: string }>();
+  const descuento = Number(p.descuento ?? 0);
 
   return (
     <View style={styles.screen} testID="request-confirmed-screen">
@@ -69,6 +70,15 @@ export default function SolicitudConfirmada() {
           <InfoRow icon="map-pin" label="Dirección:" value={p.direccion ?? "—"} last testID="request-summary-address" />
         </Animated.View>
 
+        {descuento > 0 ? (
+          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.gift} testID="request-confirmed-discount">
+            <Icon name="gift" size={24} color={colors.brandPrimary} />
+            <Text style={styles.giftText}>
+              Aplicaremos tu <Text style={styles.giftStrong}>{descuento} % de descuento de bienvenida</Text> en este presupuesto.
+            </Text>
+          </Animated.View>
+        ) : null}
+
         <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.next}>
           <View style={styles.nextHead}>
             <Icon name="info" size={22} color={colors.brandPrimary} />
@@ -101,6 +111,9 @@ const useStyles = makeStyles((c) => ({
   message: { fontFamily: fonts.body, fontSize: 15.5, lineHeight: 23, color: c.textDark, alignSelf: "stretch" },
   bold: { fontFamily: fonts.bodyBold },
   summary: { backgroundColor: c.infoCard, borderRadius: radius.xl, paddingHorizontal: 16, paddingVertical: 4 },
+  gift: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: c.brand, borderRadius: radius.xl, padding: 16 },
+  giftText: { flex: 1, fontFamily: fonts.body, fontSize: 14.5, lineHeight: 21, color: c.onBrand },
+  giftStrong: { fontFamily: fonts.extraBold, color: c.brandPrimary },
   next: { backgroundColor: c.noteCard, borderRadius: radius.xl, padding: 16, gap: 10 },
   nextHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   nextTitle: { fontFamily: fonts.extraBold, fontSize: 17, color: c.textDark },

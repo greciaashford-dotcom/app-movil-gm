@@ -1,5 +1,6 @@
 """Shared core for GM Conecta: database, document models and auth helpers."""
 import hashlib
+import ipaddress
 import logging
 import os
 import re
@@ -125,6 +126,7 @@ class Solicitud(BaseDocument):
     idempotency_key: str
     cliente_id: Optional[str] = None
     cuenta_id: Optional[str] = None
+    descuento_bienvenida: float = 0  # % for the first request of a new account
     presupuesto_id: Optional[str] = None
     obra_id: Optional[str] = None
 
@@ -163,6 +165,9 @@ class Presupuesto(BaseDocument):
     titulo: str
     lineas: List[LineaPresupuesto] = Field(default_factory=list)
     iva_porcentaje: float = 21
+    importe_lineas: float = 0
+    descuento_porcentaje: float = 0
+    descuento_importe: float = 0
     base_imponible: float = 0
     iva_importe: float = 0
     total: float = 0
@@ -176,7 +181,9 @@ class Presupuesto(BaseDocument):
     def recalcular(self) -> None:
         for linea in self.lineas:
             linea.subtotal = money(linea.cantidad * linea.precio_unitario)
-        self.base_imponible = money(sum(l.subtotal for l in self.lineas))
+        self.importe_lineas = money(sum(l.subtotal for l in self.lineas))
+        self.descuento_importe = money(self.importe_lineas * self.descuento_porcentaje / 100)
+        self.base_imponible = money(self.importe_lineas - self.descuento_importe)
         self.iva_importe = money(self.base_imponible * self.iva_porcentaje / 100)
         self.total = money(self.base_imponible + self.iva_importe)
 
@@ -236,6 +243,7 @@ class Obra(BaseDocument):
     coste_mano_obra_real: float = 0
     beneficio_neto: float = 0
     notas: str = ""
+    avisos_enviados: List[str] = Field(default_factory=list)  # client emails already sent (one-time events)
     fecha_creacion: str = Field(default_factory=now_iso)
 
     def recalcular(self) -> None:
@@ -380,6 +388,7 @@ class Cuenta(BaseDocument):
     foto: str = ""
     fecha_alta: str = Field(default_factory=now_iso)
     active: bool = True
+    bienvenida_pendiente: bool = True
 
     def public(self) -> dict:
         return {
@@ -389,6 +398,7 @@ class Cuenta(BaseDocument):
             "foto": self.foto,
             "proveedores": self.proveedores,
             "tiene_password": bool(self.password_hash),
+            "bienvenida_pendiente": self.bienvenida_pendiente,
         }
 
 
@@ -414,6 +424,8 @@ class CompanySettings(BaseModel):
     admin_email: str = ""
     iva_defecto: float = 21
     email_simulacion: bool = False
+    descuento_bienvenida: float = 5  # % off the first quote of every new account (0 = off)
+    avisos_cliente: bool = True  # email the client when their job is scheduled / progresses / finishes
     saldo_inicial_empresa: float = 0
     saldo_inicial_hogar: float = 0
 
@@ -475,8 +487,32 @@ def auth_error(detail: str, kind: Literal["account", "staff"]) -> HTTPException:
     return HTTPException(status_code=401, detail=detail, headers={"X-Auth-Error": kind})
 
 
+# Cloudflare edge ranges (https://www.cloudflare.com/ips/): they sit in front of the app and add hops to X-Forwarded-For.
+PROXY_NETWORKS = [ipaddress.ip_network(n) for n in (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+    "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+    "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+)]
+
+
+def _is_proxy(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_private or addr.is_loopback or any(addr in n for n in PROXY_NETWORKS)
+
+
 def client_ip(request: Request) -> str:
-    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    """Real client address. The left part of X-Forwarded-For is written by the client (spoofable),
+    so read it from the right: drop the Google load balancer's own address and the proxy hops."""
+    hops = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+    if len(hops) > 1 and "google" in request.headers.get("via", "").lower():
+        hops.pop()  # the Google load balancer appends "<client>, <its own address>"
+    while len(hops) > 1 and _is_proxy(hops[-1]):
+        hops.pop()
+    return hops[-1] if hops else (request.client.host if request.client else "unknown")
 
 
 def _aware(dt: datetime) -> datetime:

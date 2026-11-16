@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 3 tested: TS compile fix, forgot password (backend+UI), welcome screen + 5% first-request discount (backend+UI), admin quote with discount (backend maths + editor UI), job notices emails (admin + worker + avisos_cliente toggle), Admin › Configuración 'Clientes' section, UI standardisation spot-check at 390x844, regressions. Backend: new test_iteration3_features.py 10/10 pass (1 flaky run caused by changing egress IP), regression test_account_auth.py 16/16 and test_gmconecta_api.py 26/26 pass. Frontend: all requested flows work end-to-end (register → /bienvenida once → request form banner/summary/confirmation/Mis solicitudes badge; forgot password with all validations, wrong code error, correct injected code signs in and new password works; admin PIN, solicitud welcome note, quote editor prefilled 5% with Importe/Descuento/Base/IVA/Total, save; config validation + notices switch toasts; sign-out). Found 1 security issue (X-Forwarded-For spoofing bypasses all rate limits) and some minor UX issues. No deprecated Expo packages detected; no SafeAreaView-from-react-native issues detected.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "core.client_ip (used by /api/cuenta/recuperar, /api/cuenta/registro, /api/cuenta/login, /api/auth/login PIN)", "issue": "client_ip() trusts the FIRST X-Forwarded-For value, which the client controls. Verified: POST /api/cuenta/recuperar with header 'X-Forwarded-For: 1.2.3.4' created limit key 'recuperar-ip:1.2.3.4'. An attacker can rotate this header to bypass the per-IP limits (recuperar 10/IP, registro 10/IP, PIN 5/IP lockout). Use the last (ingress-appended) hop or the right-most untrusted IP instead.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/solicitudes", "issue": "Welcome discount 'primera' check (find_one then insert) is not atomic: two concurrent first requests from the same account can both get descuento_bienvenida=5."},
+      {"endpoint": "core.Cuenta.bienvenida_pendiente", "issue": "Default True means accounts created before this feature (no field in Mongo) will also be sent to the welcome screen on next login; confirm this is intended (they also get the 5% if they never made a request)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Admin › Configuración save", "issue": "After a validation error (e.g. discount 51) the user corrects the value back to the saved value (5): the save button becomes disabled (form not dirty) and the red error 'El descuento de bienvenida debe estar entre 0 y 50%' stays on screen forever. Clear the error when the form changes / when it equals the saved values.", "testID": "settings-error", "priority": "LOW"},
+      {"component": "Welcome screen exit", "issue": "markWelcomeSeen() is only called by welcome-request-button / welcome-explore-button. Leaving /bienvenida with Android hardware back / iOS swipe-back does not mark it seen, so the welcome screen appears again on the next app launch. Call it on mount (or in a useEffect cleanup).", "testID": "welcome-screen", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Panel general (dashboard) at 390px", "issues": ["Accesos rápidos labels truncated with ellipsis: 'Presupues…', 'Trabajador…', 'Configurac…'; KPI 'Rentabilidad …' also truncated. Reduce font size / allow 2 lines / shorter labels."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration3_features.py", "/app/test_reports/pytest/iteration3.xml"],
+  "action_items": [
+    "HIGH: fix core.client_ip to not trust the client-supplied first X-Forwarded-For entry (rate-limit bypass for PIN, login, registro, recuperar).",
+    "Admin › Configuración: clear settings-error when the form changes (stale error + disabled save button).",
+    "bienvenida.tsx: mark the welcome as seen on mount/unmount so back-gesture exits don't re-show it.",
+    "Admin dashboard quick-access tiles: avoid truncated labels at 390px.",
+    "Optional: make the first-request discount assignment atomic; confirm legacy accounts should see the welcome screen."
+  ],
+  "critical_code_review_comments": [
+    "admin_routes.py is 1142 lines (>700) – split into modules (quotes, obras, finanzas, config).",
+    "Password reset: code hashed (sha256 email:code), attempts capped at 5, sessions revoked, reset doc deleted, response identical for unknown emails – good. cuerpo stored in messages does not contain the code – verified.",
+    "avisos.py: emails sent in background with deep copy and exception swallowing – saving obra never fails; verified sequence planificada → comenzado → 50 % → pausa → Retomamos → terminado (6 mails, no repeats).",
+    "Quote maths verified: 3×10.33 + 99.99 = 130.98, 5% = 6.55, base 124.43, total = base + round(base×21%,2)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration3_features.py (new)"],
+  "success_rate": {"backend": "100% (52/52 incl. regression; 1 flaky per-IP rate-limit run due to egress IP change)", "frontend": "100% of requested flows pass; 2 minor UX bugs + 1 design issue"},
+  "seed_data_creation": "None kept. All qa.* accounts, TEST_ requests/quotes/obras/clients, recuperar_password and aviso_obra messages, password_resets, registro/recuperar login_limits deleted. All staff profiles unlinked (note: admin profile was linked to audit.adm6484@example.com before testing – unlinked via cleanup_accounts.py as instructed). Settings verified: descuento_bienvenida=5, avisos_cliente=true. No PINs changed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest -n 0 from /app/backend/tests; test_iteration3_features.py unlinks admin/tr01 (users.code is lowercase 'tr01') itself and clears registro:/recuperar login_limits (signup limit 10/IP/15min is easily hit). Egress IP of the test container can change between requests (two IPs seen), so per-IP limit tests may be flaky. Reset code injection from browser tests: run a background python poller that overwrites db.password_resets.code_hash after the UI sends the code (browser env has no pymongo). PIN input does not always auto-submit – click pin-submit-button. Admin screens redirect to home if staff session missing.",
+  "rca_of_issue": "Rate-limit bypass: core.py:489 client_ip returns request.headers['x-forwarded-for'].split(',')[0] – the left-most value is whatever the client sent; ingress appends the real IP at the end. Repro: curl -H 'X-Forwarded-For: 1.2.3.4' POST /api/cuenta/recuperar → db.login_limits key 'recuperar-ip:1.2.3.4'. Mitigation: take the right-most entry (or the one before the trusted proxy count)."
+}

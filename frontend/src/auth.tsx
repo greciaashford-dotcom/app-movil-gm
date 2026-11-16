@@ -1,5 +1,5 @@
 import * as Linking from "expo-linking";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 
 import { api, ApiError, setAccountToken, setToken, setUnauthorizedHandler } from "@/src/lib/api";
@@ -25,6 +25,10 @@ export type Cuenta = {
   foto: string;
   proveedores: string[];
   tiene_password: boolean;
+  /** Show the welcome screen once after sign-up. */
+  bienvenida_pendiente: boolean;
+  /** % off the first quote, 0 once the first request is sent. */
+  descuento_bienvenida: number;
 };
 type AccountAuth = { token: string; cuenta: Cuenta };
 
@@ -48,6 +52,12 @@ type AuthCtx = {
   /** Error from a Google redirect handled while the app was loading. */
   authError: string | null;
   signOut: () => Promise<void>;
+  /** Emails a 6-digit code; resolves with the message to show. */
+  requestPasswordReset: (email: string) => Promise<string>;
+  /** Sets the new password with the emailed code and signs in. */
+  resetPassword: (email: string, codigo: string, password: string) => Promise<void>;
+  refreshAccount: () => Promise<void>;
+  markWelcomeSeen: () => Promise<void>;
   login: (role: StaffRole, code: string, pin: string) => Promise<Session>;
   /** Leave the staff mode and go back to Cliente (the account stays signed in). */
   logout: () => Promise<void>;
@@ -75,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const tokenRef = useRef<string | null>(null);
 
   const logout = useCallback(async () => {
     setToken(null);
@@ -85,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearAccount = useCallback(async () => {
     await logout();
+    tokenRef.current = null;
     setAccountToken(null);
     setAccount(null);
     await storage.secureRemove(ACCOUNT_KEY);
@@ -93,12 +105,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const applyAccount = useCallback(
     async (r: AccountAuth) => {
       await logout();
+      tokenRef.current = r.token;
       setAccountToken(r.token);
       setAccount(r.cuenta);
       await storage.secureSet(ACCOUNT_KEY, JSON.stringify(r));
     },
     [logout],
   );
+
+  const updateAccount = useCallback(async (c: Cuenta) => {
+    setAccount(c);
+    if (tokenRef.current) await storage.secureSet(ACCOUNT_KEY, JSON.stringify({ token: tokenRef.current, cuenta: c }));
+  }, []);
 
   const exchangeGoogle = useCallback(
     async (sessionId: string) => {
@@ -132,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (raw) {
         try {
           const saved = JSON.parse(String(raw)) as AccountAuth;
+          tokenRef.current = saved.token;
           setAccountToken(saved.token);
           setAccount(saved.cuenta);
           let valid = true;
@@ -203,6 +222,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api.post("/auth/cambiar-pin", { pin_actual: pinActual, pin_nuevo: pinNuevo });
   }, []);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const r = await api.post<{ detail: string }>("/cuenta/recuperar", { email });
+    return r.detail;
+  }, []);
+
+  const resetPassword = useCallback(
+    async (email: string, codigo: string, password: string) => {
+      setAuthError(null);
+      await applyAccount(await api.post<AccountAuth>("/cuenta/restablecer", { email, codigo, password }));
+    },
+    [applyAccount],
+  );
+
+  const refreshAccount = useCallback(async () => {
+    try {
+      await updateAccount(await api.get<Cuenta>("/cuenta/me"));
+    } catch {
+      // Keep the current data when offline.
+    }
+  }, [updateAccount]);
+
+  const markWelcomeSeen = useCallback(async () => {
+    try {
+      await updateAccount(await api.post<Cuenta>("/cuenta/bienvenida-vista"));
+    } catch {
+      setAccount((a) => (a ? { ...a, bienvenida_pendiente: false } : a));
+    }
+  }, [updateAccount]);
+
   const login = useCallback(async (role: StaffRole, code: string, pin: string) => {
     const r = await api.post<any>("/auth/login", { role, code, pin });
     const s: Session = {
@@ -230,11 +278,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       authError,
       signOut,
+      requestPasswordReset,
+      resetPassword,
+      refreshAccount,
+      markWelcomeSeen,
       login,
       logout,
       changePin,
     }),
-    [hydrated, account, session, signIn, signUp, signInWithGoogle, authError, signOut, login, logout, changePin],
+    [hydrated, account, session, signIn, signUp, signInWithGoogle, authError, signOut, requestPasswordReset, resetPassword, refreshAccount, markWelcomeSeen, login, logout, changePin],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

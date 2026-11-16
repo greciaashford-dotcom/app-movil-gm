@@ -10,6 +10,7 @@ import { fonts, makeStyles, radius, useTheme } from "@/src/theme";
 import { BrandHeader } from "@/src/ui/BrandHeader";
 import { Icon } from "@/src/ui/Icon";
 import { Card, PillButton } from "@/src/ui/kit";
+import { ServiceArt } from "@/src/ui/ServiceArt";
 
 export default function ServiciosScreen() {
   const styles = useStyles();
@@ -31,8 +32,8 @@ export default function ServiciosScreen() {
               onPress={() => router.push(`/servicios/${s.slug}` as never)}
               style={({ pressed }) => [styles.item, pressed && styles.pressed]}
             >
-              <View style={[styles.icon, { backgroundColor: colors[s.iconBg] }]}>
-                <Icon name={s.icon} size={26} color={colors[s.color]} />
+              <View style={styles.icon}>
+                <ServiceArt slug={s.slug} fallback={s.icon} size={46} />
               </View>
               <View style={styles.flex}>
                 <Text style={styles.itemTitle}>{s.nombre}</Text>
@@ -63,7 +64,7 @@ const useStyles = makeStyles((c) => ({
   sub: { fontFamily: fonts.body, fontSize: 14, color: c.muted, lineHeight: 20, marginBottom: 4 },
   item: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: c.surface, borderRadius: radius.lg, padding: 16 },
   pressed: { transform: [{ scale: 0.98 }], opacity: 0.94 },
-  icon: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center" },
+  icon: { width: 54, height: 54, alignItems: "center", justifyContent: "center" },
   flex: { flex: 1 },
   itemTitle: { fontFamily: fonts.extraBold, fontSize: 17, color: c.brandDeep },
   itemDesc: { fontFamily: fonts.body, fontSize: 13, color: c.muted, marginTop: 2 },

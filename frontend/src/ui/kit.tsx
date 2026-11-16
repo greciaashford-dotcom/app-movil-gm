@@ -328,7 +328,7 @@ export function KpiCard({
       <Text style={styles.kpiLabel} numberOfLines={2}>
         {label}
       </Text>
-      {hint ? <Text style={styles.kpiHint} numberOfLines={1}>{hint}</Text> : null}
+      {hint ? <Text style={styles.kpiHint} numberOfLines={2}>{hint}</Text> : null}
     </Pressable>
   );
 }
@@ -405,6 +405,7 @@ export function EmptyState({
   title,
   text,
   action,
+  actionIcon = "circle-plus",
   onAction,
   testID,
 }: {
@@ -412,6 +413,7 @@ export function EmptyState({
   title: string;
   text?: string;
   action?: string;
+  actionIcon?: IconName;
   onAction?: () => void;
   testID?: string;
 }) {
@@ -424,7 +426,7 @@ export function EmptyState({
       </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       {text ? <Text style={styles.emptyText}>{text}</Text> : null}
-      {action ? <PillButton label={action} onPress={onAction} small testID={testID ? `${testID}-action` : "empty-state-action"} /> : null}
+      {action ? <PillButton label={action} icon={actionIcon} iconRight="chevron-right" onPress={onAction} small testID={testID ? `${testID}-action` : "empty-state-action"} /> : null}
     </View>
   );
 }

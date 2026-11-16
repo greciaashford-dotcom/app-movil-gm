@@ -15,6 +15,7 @@ from core import (
     get_settings, hasher, insert_doc, money, month_bounds, next_seq, norm_phone, now_iso, now_utc, optional_user,
     require_admin, save_doc, scoped, to_oid, today_local, today_str, upsert_user, check_pin, clear_login_failures,
 )
+from avisos import eventos_obra, lanzar_avisos
 from email_service import EMAIL_KEY, deliver, email_mode, tpl_presupuesto, tpl_prueba, tpl_respuesta
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_admin)])
@@ -181,6 +182,7 @@ class PresupuestoIn(BaseModel):
     titulo: str = Field(min_length=3, max_length=150)
     lineas: List[LineaIn] = Field(min_length=1, max_length=60)
     iva_porcentaje: float = Field(default=21, ge=0, le=30)
+    descuento_porcentaje: Optional[float] = Field(default=None, ge=0, le=50)
     notas: str = Field(default="", max_length=2000)
 
 
@@ -188,6 +190,7 @@ class PresupuestoPatch(BaseModel):
     titulo: Optional[str] = Field(default=None, min_length=3, max_length=150)
     lineas: Optional[List[LineaIn]] = Field(default=None, min_length=1, max_length=60)
     iva_porcentaje: Optional[float] = Field(default=None, ge=0, le=30)
+    descuento_porcentaje: Optional[float] = Field(default=None, ge=0, le=50)
     notas: Optional[str] = Field(default=None, max_length=2000)
     estado: Optional[Literal["pendiente", "aceptado", "rechazado"]] = None
     cliente_correo: Optional[str] = Field(default=None, max_length=120)
@@ -219,6 +222,8 @@ async def crear_presupuesto(body: PresupuestoIn):
         titulo=body.titulo,
         lineas=[LineaPresupuesto(**l.model_dump()) for l in body.lineas],
         iva_porcentaje=body.iva_porcentaje,
+        # The client's welcome discount comes from the request unless the admin sets another one.
+        descuento_porcentaje=body.descuento_porcentaje if body.descuento_porcentaje is not None else (sol.descuento_bienvenida if sol else 0),
         notas=body.notas,
     )
     q.recalcular()
@@ -240,7 +245,7 @@ async def detalle_presupuesto(q_id: str):
 async def editar_presupuesto(q_id: str, body: PresupuestoPatch):
     q = await get_doc("quotes", Presupuesto, q_id)
     data = body.model_dump(exclude_none=True)
-    if q.obra_id and ("lineas" in data or data.get("estado") in ("pendiente", "rechazado")):
+    if q.obra_id and ("lineas" in data or "descuento_porcentaje" in data or data.get("estado") in ("pendiente", "rechazado")):
         raise HTTPException(status_code=409, detail="El presupuesto ya está convertido en obra")
     if "lineas" in data:
         q.lineas = [LineaPresupuesto(**l) for l in data.pop("lineas")]
@@ -297,7 +302,9 @@ async def convertir_en_obra(q_id: str, body: ConvertirIn):
         presupuesto_previsto=q.base_imponible,
     )
     o.recalcular()
+    eventos = eventos_obra(o, None, 0)
     await insert_doc("projects", o)
+    lanzar_avisos(o, eventos)
     q.obra_id = o.id
     await save_doc("quotes", q)
     for w in body.trabajadores:
@@ -359,6 +366,7 @@ class ObraPatch(BaseModel):
 @router.patch("/admin/obras/{obra_id}")
 async def editar_obra(obra_id: str, body: ObraPatch):
     o = await get_doc("projects", Obra, obra_id)
+    estado_antes, avance_antes = o.estado, o.porcentaje_avance
     data = body.model_dump(exclude_none=True)
     if "trabajadores_asignados" in data:
         nuevos, antiguos = set(data["trabajadores_asignados"]), set(o.trabajadores_asignados)
@@ -376,7 +384,9 @@ async def editar_obra(obra_id: str, body: ObraPatch):
     elif data.get("estado") == "en_curso" and o.solicitud_id:
         await db.requests.update_one({"_id": to_oid(o.solicitud_id)}, {"$set": {"estado": "en_obra"}})
     o.recalcular()
+    eventos = eventos_obra(o, estado_antes, avance_antes)
     await save_doc("projects", o)
+    lanzar_avisos(o, eventos)
     return await obra_detail(o)
 
 
@@ -1020,6 +1030,8 @@ class SettingsPatch(BaseModel):
     admin_email: Optional[str] = Field(default=None, max_length=120)
     iva_defecto: Optional[float] = Field(default=None, ge=0, le=30)
     email_simulacion: Optional[bool] = None
+    descuento_bienvenida: Optional[float] = Field(default=None, ge=0, le=50)
+    avisos_cliente: Optional[bool] = None
 
 
 async def config_out() -> dict:

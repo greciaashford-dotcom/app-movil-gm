@@ -12,6 +12,7 @@ import { fonts, makeStyles, useTheme } from "@/src/theme";
 import { AppBar } from "@/src/ui/BrandHeader";
 import { Icon } from "@/src/ui/Icon";
 import { Badge, Card, Chip, ChipRow, EmptyState, ErrorView, LoadingView } from "@/src/ui/kit";
+import { ServiceIcon } from "@/src/ui/ServiceArt";
 
 const FILTROS = [
   { key: "todas", label: "Todas" },
@@ -77,7 +78,7 @@ export default function AdminSolicitudes() {
                 <Badge label={ESTADOS_SOLICITUD[s.estado].label} tone={ESTADOS_SOLICITUD[s.estado].tone} />
               </View>
               <View style={styles.row}>
-                <Icon name={s.es_urgencia ? "siren" : "wrench"} size={16} color={s.es_urgencia ? colors.urgent : colors.brand} />
+                <ServiceIcon servicio={s.servicio} urgent={s.es_urgencia} size={24} />
                 <Text style={styles.service}>{s.servicio}</Text>
               </View>
               <Text style={styles.client}>{s.nombre_cliente}</Text>

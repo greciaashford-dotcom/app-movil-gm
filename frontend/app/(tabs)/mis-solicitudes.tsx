@@ -15,6 +15,7 @@ import { fonts, makeStyles, useTheme } from "@/src/theme";
 import { BrandHeader } from "@/src/ui/BrandHeader";
 import { Icon } from "@/src/ui/Icon";
 import { Badge, Card, EmptyState, ErrorView, Field, LoadingView, PillButton, ProgressBar } from "@/src/ui/kit";
+import { ServiceIcon } from "@/src/ui/ServiceArt";
 
 export default function MisSolicitudes() {
   const styles = useStyles();
@@ -83,7 +84,8 @@ export default function MisSolicitudes() {
               icon="clipboard-list"
               title="Aún no tienes solicitudes"
               text="Cuéntanos qué necesitas reparar o reformar y te enviaremos un presupuesto sin compromiso."
-              action="Solicitar presupuesto"
+              action="Solicitar presupuesto gratis"
+              actionIcon="file-text"
               onAction={() => router.push("/solicitar-presupuesto")}
               testID="my-requests-empty"
             />
@@ -98,9 +100,10 @@ export default function MisSolicitudes() {
                   <Badge label={st.label} tone={st.tone} testID={`my-request-status-${s.numero_solicitud}`} />
                 </View>
                 <View style={styles.row}>
-                  {s.es_urgencia ? <Icon name="siren" size={16} color={colors.urgent} /> : <Icon name="wrench" size={16} color={colors.brand} />}
+                  <ServiceIcon servicio={s.servicio} urgent={s.es_urgencia} size={24} />
                   <Text style={styles.reqService}>{s.servicio}</Text>
                 </View>
+                {s.descuento_bienvenida ? <Badge label={`−${s.descuento_bienvenida} % de bienvenida`} tone="yellow" testID={`my-request-discount-${s.numero_solicitud}`} /> : null}
                 <Text style={styles.reqMeta}>
                   {fechaHora(s.fecha_creacion)} · {s.direccion}
                 </Text>

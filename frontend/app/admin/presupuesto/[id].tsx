@@ -43,6 +43,7 @@ export default function PresupuestoEditor() {
   const [servicio, setServicio] = useState("");
   const [lineas, setLineas] = useState<LineaForm[]>([newLine("MATERIAL"), newLine("MANO_OBRA")]);
   const [iva, setIva] = useState("21");
+  const [descuento, setDescuento] = useState("0");
   const [notas, setNotas] = useState("Presupuesto válido 30 días. Forma de pago: 50% al inicio y 50% a la finalización.");
   const [formError, setFormError] = useState<string | null>(null);
   const [convertOpen, setConvertOpen] = useState(false);
@@ -56,6 +57,7 @@ export default function PresupuestoEditor() {
       setServicio(p.servicio);
       setLineas(p.lineas.map((l) => newLine(l.tipo, l.concepto, String(l.cantidad), String(l.precio_unitario))));
       setIva(String(p.iva_porcentaje));
+      setDescuento(String(p.descuento_porcentaje ?? 0));
       setNotas(p.notas);
       setInit(true);
     } else if (isNew && sol.data) {
@@ -63,6 +65,7 @@ export default function PresupuestoEditor() {
       setCliente({ nombre: s.nombre_cliente, telefono: s.telefono_cliente, correo: s.correo_cliente, direccion: s.direccion });
       setServicio(s.servicio);
       setTitulo(`${s.servicio} – ${s.nombre_cliente}`);
+      setDescuento(String(s.descuento_bienvenida ?? 0));
       setInit(true);
     } else if (isNew && !solicitud_id) {
       setInit(true);
@@ -72,11 +75,13 @@ export default function PresupuestoEditor() {
   const p = existing.data;
   const locked = !!p?.obra_id;
   const totals = useMemo(() => {
-    const base = lineas.reduce((acc, l) => acc + parseNum(l.cantidad) * parseNum(l.precio), 0);
+    const bruto = lineas.reduce((acc, l) => acc + parseNum(l.cantidad) * parseNum(l.precio), 0);
+    const descImp = (bruto * parseNum(descuento)) / 100;
+    const base = bruto - descImp;
     const ivaImp = (base * parseNum(iva)) / 100;
     const mat = lineas.filter((l) => l.tipo === "MATERIAL").reduce((a, l) => a + parseNum(l.cantidad) * parseNum(l.precio), 0);
-    return { base, ivaImp, total: base + ivaImp, mat, mo: base - mat };
-  }, [lineas, iva]);
+    return { bruto, descImp, base, ivaImp, total: base + ivaImp, mat, mo: bruto - mat };
+  }, [lineas, iva, descuento]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["admin-presupuestos"] });
@@ -92,9 +97,12 @@ export default function PresupuestoEditor() {
       if (cliente.nombre.trim().length < 2) throw new Error("Indica el nombre del cliente");
       if (titulo.trim().length < 3) throw new Error("Indica un título para el presupuesto");
       if (!valid.length) throw new Error("Añade al menos una línea con concepto y cantidad");
+      const desc = parseNum(descuento);
+      if (desc < 0 || desc > 50) throw new Error("El descuento debe estar entre 0 y 50%");
       const body = {
         lineas: valid.map((l) => ({ tipo: l.tipo, concepto: l.concepto.trim(), cantidad: parseNum(l.cantidad), precio_unitario: parseNum(l.precio) })),
         iva_porcentaje: parseNum(iva),
+        descuento_porcentaje: desc,
         notas,
         titulo: titulo.trim(),
       };
@@ -157,7 +165,7 @@ export default function PresupuestoEditor() {
 
   const updateLine = (key: string, patch: Partial<LineaForm>) => setLineas((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const waText = p
-    ? `Hola ${p.cliente_nombre}, te enviamos el presupuesto ${p.numero_presupuesto} de GM Conecta: ${p.titulo}.\nBase: ${eur(p.base_imponible)}\nIVA (${p.iva_porcentaje}%): ${eur(p.iva_importe)}\nTotal: ${eur(p.total)}\n¿Te parece bien que empecemos?`
+    ? `Hola ${p.cliente_nombre}, te enviamos el presupuesto ${p.numero_presupuesto} de GM Conecta: ${p.titulo}.\n${p.descuento_importe ? `Descuento de bienvenida (${p.descuento_porcentaje}%): -${eur(p.descuento_importe)}\n` : ""}Base: ${eur(p.base_imponible)}\nIVA (${p.iva_porcentaje}%): ${eur(p.iva_importe)}\nTotal: ${eur(p.total)}\n¿Te parece bien que empecemos?`
     : "";
 
   const renderSection = (tipo: LineaForm["tipo"], title: string) => (
@@ -255,12 +263,27 @@ export default function PresupuestoEditor() {
         {renderSection("MANO_OBRA", "Mano de obra")}
 
         <Card style={styles.gap}>
-          <Text style={styles.sectionTitle}>IVA</Text>
+          <Text style={styles.sectionTitle}>IVA y descuento</Text>
           <View style={styles.chips}>
             {["21", "10", "0"].map((v) => (
               <Chip key={v} label={`${v}%`} selected={parseNum(iva) === parseNum(v)} onPress={() => !locked && setIva(v)} testID={`quote-iva-${v}`} />
             ))}
           </View>
+          <Field
+            label="Descuento (%)"
+            value={descuento}
+            onChangeText={setDescuento}
+            keyboardType="decimal-pad"
+            editable={!locked}
+            hint="Las cuentas nuevas tienen descuento de bienvenida en su primera solicitud. 0 = sin descuento."
+            testID="quote-discount-input"
+          />
+          {totals.descImp > 0 ? (
+            <>
+              <MoneyRow label="Importe" value={eur(totals.bruto)} />
+              <MoneyRow label={`Descuento (${parseNum(descuento)}%)`} value={`- ${eur(totals.descImp)}`} tone="minus" />
+            </>
+          ) : null}
           <MoneyRow label="Base imponible" value={eur(totals.base)} />
           <MoneyRow label={`IVA (${parseNum(iva)}%)`} value={eur(totals.ivaImp)} />
           <View style={styles.divider} />

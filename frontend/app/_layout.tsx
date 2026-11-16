@@ -93,10 +93,12 @@ function RootNavigator() {
         <Stack.Screen name="solicitar-presupuesto" />
         <Stack.Screen name="solicitud-urgente" />
         <Stack.Screen name="solicitud-confirmada" />
+        <Stack.Screen name="bienvenida" options={{ animation: "fade", contentStyle: { backgroundColor: colors.brand } }} />
       </Stack.Protected>
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="login" options={{ contentStyle: { backgroundColor: colors.brand } }} />
         <Stack.Screen name="registro" options={{ contentStyle: { backgroundColor: colors.brand } }} />
+        <Stack.Screen name="recuperar" options={{ contentStyle: { backgroundColor: colors.brand } }} />
       </Stack.Protected>
     </Stack>
   );

@@ -1,12 +1,13 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { LayoutChangeEvent, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 
+import { useAuth } from "@/src/auth";
 import { COMPANY_PHONE, HERO_IMAGE, SERVICES } from "@/src/lib/constants";
 import { telLink } from "@/src/lib/format";
 import { usesNativeTabs } from "@/src/navigation";
@@ -23,6 +24,8 @@ const HERO_RATIO = 766 / 732;
 
 /** Image bottom offset inside the hero (the CTA covers the rest). */
 const HERO_IMG_BOTTOM = 40;
+/** Accounts that already got the welcome screen in this app session. */
+const welcomeShownFor = new Set<string>();
 
 /** Screen-driven sizes so hero, services and urgencies all fit in the first view on every phone (390pt = reference). */
 function useHomeSizes() {
@@ -72,6 +75,16 @@ export default function HomeScreen() {
   // Photo fills the hero height without being zoomed or cropped, capped so it never covers the whole width.
   const imgW = Math.max(0, Math.min((heroH - HERO_IMG_BOTTOM) * HERO_RATIO, width * 0.68));
   const onHeroLayout = (e: LayoutChangeEvent) => setHeroH(Math.round(e.nativeEvent.layout.height));
+  const { account } = useAuth();
+  const welcomeFor = account?.bienvenida_pendiente ? account.account_id : null;
+
+  // New accounts land on the welcome screen once.
+  useEffect(() => {
+    if (!welcomeFor || welcomeShownFor.has(welcomeFor)) return;
+    welcomeShownFor.add(welcomeFor);
+    const t = setTimeout(() => router.push("/bienvenida"), 250);
+    return () => clearTimeout(t);
+  }, [welcomeFor, router]);
 
   return (
     <View style={styles.screen} testID="home-screen">

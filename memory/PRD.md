@@ -40,9 +40,16 @@ Expo (mobile + web) app "GM Conecta" for GM Reforma Express (Madrid): clients re
 ## Credentials
 See /app/memory/test_credentials.md (admin 582047; each worker/store has its own 6-digit PIN)
 
+## Iteration 3 (Jun 2026 – tested: backend 10/10 new + 42 regression, all frontend flows)
+- Forgot password: «¿Olvidaste tu contraseña?» on /login → /recuperar; 6-digit code by email (15 min, 5 attempts, 3 per email / 10 per IP), new password signs in and closes other sessions (/api/cuenta/recuperar, /api/cuenta/restablecer)
+- Welcome with discount: /bienvenida shown once after sign-up (marked seen on open); settings.descuento_bienvenida (default 5 %, Admin › Configuración › Clientes) on the first request of each account (atomic claim accounts.descuento_usado), pre-filled in the quote editor, shown in form, confirmation, Mis solicitudes and quote email
+- Job notices (backend/avisos.py): client email when the job is scheduled, starts, pauses, resumes, reaches 25/50/75 % and finishes (admin or worker changes); on/off switch in Configuración
+- UI: same buttons/icons as home (ServiceIcon art in lists, EmptyState action icons, Google button); admin quick-access tiles fit at 390 pt
+- Security: client_ip reads X-Forwarded-For from the right (skips Google LB + Cloudflare hops) so the per-IP limits cannot be spoofed
+
 ## Backlog
 - P1: set the real alert email in Configuración; change the seeded PINs (Accesos y PIN) before going live
-- P1: password reset by email ("¿Olvidaste tu contraseña?")
-- P2: corrective invoices (rectificativas), delete/archive solicitudes/presupuestos/obras
+- P2: corrective invoices (rectificativas)
+- P2: delete solicitudes/presupuestos/obras – user choice: delete permanently, admin only (clients cannot delete anything)
 - P2: split admin_routes.py into modules
-- Test helpers: backend/tests/cleanup_test_data.py, backend/tests/cleanup_accounts.py (unlinks profiles, deletes test accounts)
+- Test helpers: backend/tests/cleanup_test_data.py, backend/tests/cleanup_accounts.py (need MONGO_URL/DB_NAME env: `set -a; . /app/backend/.env`)

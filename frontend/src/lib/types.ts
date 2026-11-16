@@ -16,7 +16,8 @@ export type SolicitudPublica = {
   descripcion: string;
   nombre_cliente: string;
   num_fotos: number;
-  presupuesto: { numero: string; total: number; estado: EstadoPresupuesto } | null;
+  descuento_bienvenida?: number;
+  presupuesto: { numero: string; total: number; estado: EstadoPresupuesto; descuento_importe?: number } | null;
   obra: { estado: EstadoObra; porcentaje_avance: number; fecha_inicio: string } | null;
 };
 
@@ -33,6 +34,7 @@ export type Solicitud = {
   correo_cliente: string;
   descripcion: string;
   fotografias: string[];
+  descuento_bienvenida?: number;
   cliente_id?: string | null;
   presupuesto_id?: string | null;
   obra_id?: string | null;
@@ -71,6 +73,9 @@ export type Presupuesto = {
   titulo: string;
   lineas: Linea[];
   iva_porcentaje: number;
+  importe_lineas?: number;
+  descuento_porcentaje?: number;
+  descuento_importe?: number;
   base_imponible: number;
   iva_importe: number;
   total: number;

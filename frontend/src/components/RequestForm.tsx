@@ -17,8 +17,10 @@ import { fonts, makeStyles, radius, useTheme } from "@/src/theme";
 import { BrandHeader } from "@/src/ui/BrandHeader";
 import { Icon } from "@/src/ui/Icon";
 import { Field, PillButton } from "@/src/ui/kit";
+import { ServiceIcon } from "@/src/ui/ServiceArt";
 
 type Foto = { uri: string; path?: string; uploading: boolean; error?: string };
+
 const STEP_TITLES = ["¿Qué necesitas?", "Describe el trabajo", "Fotografías", "Tus datos de contacto"];
 const MAX_FOTOS = 5;
 const BAR_HEIGHT = 84;
@@ -30,7 +32,8 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
   const insets = useSafeAreaInsets();
   const idemKey = useRef(genKey());
   const { pick, permissionSheet } = usePhotoPicker();
-  const { account } = useAuth();
+  const { account, refreshAccount } = useAuth();
+  const descuento = account?.descuento_bienvenida ?? 0;
 
   const [step, setStep] = useState(0);
   const [categoria, setCategoria] = useState<string>(urgent ? "Urgencia 24h" : initialServicio ?? "");
@@ -116,9 +119,10 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
       });
       await addStoredRequest({ numero: res.numero_solicitud, key: idemKey.current });
       if (guardar) await savePerfil({ nombre: nombre.trim(), telefono: telefono.trim(), correo: correo.trim(), direccion: direccion.trim() });
+      void refreshAccount(); // the welcome discount is now used
       router.replace({
         pathname: "/solicitud-confirmada",
-        params: { numero: res.numero_solicitud, fecha: res.fecha_creacion, servicio: res.servicio, direccion: res.direccion },
+        params: { numero: res.numero_solicitud, fecha: res.fecha_creacion, servicio: res.servicio, direccion: res.direccion, descuento: String(res.descuento_bienvenida ?? 0) },
       });
     } catch (e) {
       setSubmitError(errorMessage(e));
@@ -159,6 +163,14 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
 
         {step === 0 ? (
           <Animated.View entering={FadeIn} style={styles.gap}>
+            {descuento > 0 ? (
+              <View style={styles.discount} testID="request-welcome-discount">
+                <Icon name="gift" size={22} color={colors.brandPrimary} />
+                <Text style={styles.discountText}>
+                  Tu primera solicitud tiene un <Text style={styles.discountStrong}>{descuento} % de descuento</Text> de bienvenida.
+                </Text>
+              </View>
+            ) : null}
             {(urgent ? CATEGORIAS_FORM.filter((c) => c.urgent) : CATEGORIAS_FORM).map((c) => {
               const active = categoria === c.label;
               return (
@@ -168,8 +180,8 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
                   onPress={() => setCategoria(c.label)}
                   style={[styles.option, active && styles.optionActive, c.urgent && styles.optionUrgent, c.urgent && active && styles.optionUrgentActive]}
                 >
-                  <View style={[styles.optionIcon, c.urgent && styles.optionIconUrgent]}>
-                    <Icon name={c.icon} size={22} color={c.urgent ? colors.urgent : colors.brand} />
+                  <View style={styles.optionIcon}>
+                    <ServiceIcon servicio={c.label} urgent={c.urgent} size={34} />
                   </View>
                   <Text style={styles.optionText}>{c.label}</Text>
                   <Icon name={active ? "circle-check" : "chevron-right"} size={22} color={active ? (c.urgent ? colors.urgent : colors.brand) : colors.muted} />
@@ -264,6 +276,11 @@ export function RequestForm({ urgent = false, initialServicio }: { urgent?: bool
               <Text style={styles.summaryText}>
                 <Text style={styles.bold}>Fotos:</Text> {fotos.filter((f) => f.path).length}
               </Text>
+              {descuento > 0 ? (
+                <Text style={styles.summaryText} testID="request-summary-discount">
+                  <Text style={styles.bold}>Descuento de bienvenida:</Text> {descuento} %
+                </Text>
+              ) : null}
             </View>
             {submitError ? (
               <Text style={styles.error} testID="request-submit-error">
@@ -315,9 +332,11 @@ const useStyles = makeStyles((c) => ({
   optionActive: { borderColor: c.brand, backgroundColor: c.infoCard },
   optionUrgent: { backgroundColor: c.urgentBg },
   optionUrgentActive: { borderColor: c.urgent },
-  optionIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: c.infoCard, alignItems: "center", justifyContent: "center" },
-  optionIconUrgent: { backgroundColor: c.errorSoft },
+  optionIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
   optionText: { flex: 1, fontFamily: fonts.extraBold, fontSize: 16, color: c.brandDeep },
+  discount: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: c.brand, borderRadius: radius.lg, padding: 14 },
+  discountText: { flex: 1, fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: c.onBrand },
+  discountStrong: { fontFamily: fonts.extraBold, color: c.brandPrimary },
   label: { fontFamily: fonts.bodySemi, fontSize: 14, color: c.brandDeep },
   urgTypes: { flexDirection: "row", gap: 8 },
   urgType: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 14, borderRadius: 18, borderWidth: 2, borderColor: c.urgent, backgroundColor: c.surface },

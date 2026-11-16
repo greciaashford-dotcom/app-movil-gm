@@ -9,6 +9,7 @@ import { fonts, makeStyles, radius, useTheme } from "@/src/theme";
 import { BrandHeader } from "@/src/ui/BrandHeader";
 import { Icon } from "@/src/ui/Icon";
 import { Card, EmptyState, PillButton } from "@/src/ui/kit";
+import { ServiceArt } from "@/src/ui/ServiceArt";
 
 const PASOS = ["Nos cuentas qué necesitas y adjuntas fotos.", "Revisamos y te llamamos si hace falta.", "Recibes un presupuesto sin compromiso."];
 
@@ -25,7 +26,7 @@ export default function ServicioDetalle() {
     return (
       <View style={styles.screen}>
         <BrandHeader variant="compact" showBack />
-        <EmptyState icon="wrench" title="Servicio no encontrado" action="Ver servicios" onAction={() => router.replace("/servicios")} />
+        <EmptyState icon="wrench" title="Servicio no encontrado" action="Ver servicios" actionIcon="wrench" onAction={() => router.replace("/servicios")} />
       </View>
     );
   }
@@ -35,8 +36,8 @@ export default function ServicioDetalle() {
       <BrandHeader variant="compact" showBack />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}>
         <View style={styles.hero}>
-          <View style={[styles.icon, { backgroundColor: colors[s.iconBg] }]}>
-            <Icon name={s.icon} size={34} color={colors[s.color]} />
+          <View style={styles.icon}>
+            <ServiceArt slug={s.slug} fallback={s.icon} size={60} />
           </View>
           <Text style={styles.title} testID="service-detail-title">
             {s.nombre}
@@ -83,7 +84,7 @@ const useStyles = makeStyles((c) => ({
   screen: { flex: 1, backgroundColor: c.canvas },
   content: { padding: 16, gap: 14 },
   hero: { backgroundColor: c.surface, borderRadius: radius.xxl, padding: 20, gap: 10 },
-  icon: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
+  icon: { width: 64, height: 64, alignItems: "flex-start", justifyContent: "center" },
   title: { fontFamily: fonts.black, fontSize: 28, color: c.brandDeep },
   line: { width: 56, height: 5, borderRadius: 3, backgroundColor: c.brandPrimary },
   intro: { fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: c.textDark },

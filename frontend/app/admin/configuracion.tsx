@@ -24,10 +24,12 @@ type Settings = {
   admin_email: string;
   iva_defecto: number;
   email_simulacion: boolean;
+  descuento_bienvenida: number;
+  avisos_cliente: boolean;
 };
 type Integracion = { clave: string; nombre: string; estado: "activo" | "simulacion" | "pendiente"; detalle: string; extra?: string };
 type Config = { settings: Settings; integraciones: Integracion[]; mensajes: Record<string, number> };
-type Form = Omit<Settings, "iva_defecto" | "email_simulacion"> & { iva_defecto: string };
+type Form = Omit<Settings, "iva_defecto" | "email_simulacion" | "descuento_bienvenida" | "avisos_cliente"> & { iva_defecto: string; descuento_bienvenida: string };
 
 const ESTADO_INT: Record<Integracion["estado"], { label: string; tone: Tone }> = {
   activo: { label: "Activo", tone: "success" },
@@ -51,6 +53,7 @@ function toForm(s: Settings): Form {
     email_contacto: s.email_contacto,
     admin_email: s.admin_email,
     iva_defecto: String(s.iva_defecto),
+    descuento_bienvenida: String(s.descuento_bienvenida ?? 0),
   };
 }
 
@@ -80,6 +83,8 @@ export default function AdminConfiguracion() {
       if (f.email_contacto && !EMAIL_RE.test(f.email_contacto.trim())) throw new Error("El correo de contacto no es válido");
       const iva = parseNum(f.iva_defecto);
       if (iva < 0 || iva > 30) throw new Error("El IVA debe estar entre 0 y 30%");
+      const desc = parseNum(f.descuento_bienvenida);
+      if (desc < 0 || desc > 50) throw new Error("El descuento de bienvenida debe estar entre 0 y 50%");
       return api.patch<Config>("/admin/configuracion", {
         razon_social: f.razon_social.trim(),
         cif: f.cif.trim().toUpperCase(),
@@ -89,6 +94,7 @@ export default function AdminConfiguracion() {
         email_contacto: f.email_contacto.trim(),
         admin_email: f.admin_email.trim(),
         iva_defecto: iva,
+        descuento_bienvenida: desc,
       });
     },
     onSuccess: (d) => {
@@ -101,6 +107,12 @@ export default function AdminConfiguracion() {
   const simulacion = useMutation({
     mutationFn: (v: boolean) => api.patch<Config>("/admin/configuracion", { email_simulacion: v }),
     onSuccess: (d) => onSaved(d, d.settings.email_simulacion ? "Modo simulación activado" : "Correos reales activados"),
+    onError: (e) => toast.show(errorMessage(e), "error"),
+  });
+
+  const avisos = useMutation({
+    mutationFn: (v: boolean) => api.patch<Config>("/admin/configuracion", { avisos_cliente: v }),
+    onSuccess: (d) => onSaved(d, d.settings.avisos_cliente ? "Avisos de obra activados" : "Avisos de obra desactivados"),
     onError: (e) => toast.show(errorMessage(e), "error"),
   });
 
@@ -125,7 +137,10 @@ export default function AdminConfiguracion() {
     );
   }
   const cfg = q.data;
-  const set = (k: keyof Form) => (v: string) => setForm((x) => (x ? { ...x, [k]: v } : x));
+  const set = (k: keyof Form) => (v: string) => {
+    setError(null);
+    setForm((x) => (x ? { ...x, [k]: v } : x));
+  };
   const dirty = JSON.stringify(form) !== JSON.stringify(toForm(cfg.settings));
 
   return (
@@ -198,6 +213,32 @@ export default function AdminConfiguracion() {
             <Count label="Enviados" value={cfg.mensajes.enviado ?? 0} testID="settings-count-sent" />
             <Count label="Simulados" value={cfg.mensajes.simulado_pendiente_api_key ?? 0} testID="settings-count-simulated" />
             <Count label="Errores" value={cfg.mensajes.error ?? 0} testID="settings-count-error" />
+          </View>
+        </Card>
+
+        <SectionTitle title="Clientes" />
+        <Card style={styles.gap}>
+          <Field
+            label="Descuento de bienvenida (%)"
+            value={form.descuento_bienvenida}
+            onChangeText={set("descuento_bienvenida")}
+            keyboardType="decimal-pad"
+            hint="Se aplica al primer presupuesto de cada cuenta nueva. 0 = sin descuento."
+            testID="settings-welcome-discount-input"
+          />
+          <View style={styles.rowBetween}>
+            <View style={styles.flex}>
+              <Text style={styles.intName}>Avisos de obra por correo</Text>
+              <Text style={styles.hint}>Avisamos al cliente cuando su obra se programa, empieza, llega al 25, 50 y 75 %, se pausa o termina.</Text>
+            </View>
+            <Switch
+              value={cfg.settings.avisos_cliente}
+              onValueChange={(v) => avisos.mutate(v)}
+              disabled={avisos.isPending}
+              trackColor={{ false: colors.border, true: colors.brandPrimary }}
+              thumbColor={colors.surface}
+              testID="settings-job-notices-switch"
+            />
           </View>
         </Card>
 

@@ -70,3 +70,21 @@ export function SirenArt({ size = 48 }: { size?: number }) {
     </Svg>
   );
 }
+
+/** Home-screen slug for a request / quote service label ("Fontanería", "Reformas / Mantenimiento", "Urgencia 24h · …"). */
+export function serviceSlug(servicio: string): string {
+  const s = (servicio || "").toLowerCase();
+  if (s.startsWith("urgencia")) return "urgencia";
+  if (s.includes("fontan")) return "fontaneria";
+  if (s.includes("electric")) return "electricidad";
+  if (s.includes("pint")) return "pintura";
+  if (s.includes("reform") || s.includes("manten") || s.includes("albañ")) return "reformas";
+  return "";
+}
+
+/** The same colourful illustration the home screen uses for a service; the siren for 24h urgencies. */
+export function ServiceIcon({ servicio, urgent, size = 32 }: { servicio: string; urgent?: boolean; size?: number }) {
+  const slug = serviceSlug(servicio);
+  if (urgent || slug === "urgencia") return <SirenArt size={size} />;
+  return <ServiceArt slug={slug} fallback="wrench" size={size} />;
+}

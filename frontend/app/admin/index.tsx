@@ -13,6 +13,7 @@ import { fonts, makeStyles, radius, useTheme } from "@/src/theme";
 import { AppBar } from "@/src/ui/BrandHeader";
 import { Icon, IconName } from "@/src/ui/Icon";
 import { Badge, Card, ErrorView, KpiCard, LoadingView, SectionTitle } from "@/src/ui/kit";
+import { ServiceIcon } from "@/src/ui/ServiceArt";
 
 type Dashboard = {
   kpis: {
@@ -86,12 +87,11 @@ export default function AdminDashboard() {
           <View style={styles.grid}>
             {ACCESOS.map((a) => (
               <Pressable key={a.href} testID={`quick-${a.href.split("/").pop()}`} onPress={() => router.push(a.href as never)} style={({ pressed }) => [styles.quick, pressed && styles.pressed]}>
-                <View style={styles.quickIcon}>
-                  <Icon name={a.icon} size={20} color={colors.brandPrimary} />
-                </View>
-                <Text style={styles.quickText} numberOfLines={1}>
+                <Icon name={a.icon} size={22} color={colors.brandSecondary} />
+                <Text style={styles.quickText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
                   {a.label}
                 </Text>
+                <Icon name="chevron-right" size={14} color={colors.brandDeep} />
               </Pressable>
             ))}
           </View>
@@ -99,8 +99,8 @@ export default function AdminDashboard() {
           <SectionTitle title="Últimas solicitudes" action="Ver todas" onAction={() => router.push("/admin/solicitudes")} testID="dashboard-see-requests" />
           {q.data?.recientes.map((s) => (
             <Card key={s.id} onPress={() => router.push(`/admin/solicitud/${s.id}` as never)} testID={`dashboard-request-${s.numero_solicitud}`} style={styles.reqCard}>
-              <View style={[styles.reqIcon, s.es_urgencia && styles.reqIconUrgent]}>
-                <Icon name={s.es_urgencia ? "siren" : "clipboard-list"} size={18} color={s.es_urgencia ? colors.urgent : colors.brand} />
+              <View style={styles.reqIcon}>
+                <ServiceIcon servicio={s.servicio} urgent={s.es_urgencia} size={30} />
               </View>
               <View style={styles.flex}>
                 <Text style={styles.reqTitle} numberOfLines={1}>
@@ -148,13 +148,24 @@ const useStyles = makeStyles((c) => ({
   profitRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
   profitSub: { fontFamily: fonts.bodyMedium, fontSize: 13, color: c.onBrand },
   kpis: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  quick: { width: "31%", flexGrow: 1, backgroundColor: c.surface, borderRadius: 18, paddingVertical: 14, alignItems: "center", gap: 8 },
-  quickIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.brand, alignItems: "center", justifyContent: "center" },
-  quickText: { fontFamily: fonts.bodySemi, fontSize: 12.5, color: c.brandDeep },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  // Same card as the home "Nuestros servicios" grid: white, radius md, icon + bold label + chevron.
+  quick: {
+    flexBasis: "46%",
+    flexGrow: 1,
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: c.surface,
+    borderRadius: radius.md,
+    paddingVertical: 6,
+    paddingLeft: 10,
+    paddingRight: 4,
+  },
+  quickText: { flex: 1, fontFamily: fonts.extraBold, fontSize: 13.5, color: c.brandDeep },
   reqCard: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
-  reqIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: c.infoCard, alignItems: "center", justifyContent: "center" },
-  reqIconUrgent: { backgroundColor: c.errorSoft },
+  reqIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
   reqTitle: { fontFamily: fonts.bodySemi, fontSize: 14.5, color: c.brandDeep },
   reqMeta: { fontFamily: fonts.body, fontSize: 12.5, color: c.muted, marginTop: 2 },
 }));

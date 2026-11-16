@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { useAuth } from "@/src/auth";
 import { AuthLink, AuthScaffold, FormError, GoogleButton, OrDivider, PasswordField } from "@/src/components/AuthScaffold";
@@ -80,6 +80,15 @@ export default function LoginScreen() {
         onSubmitEditing={submit}
         testID="login-password-input"
       />
+      <Pressable
+        onPress={() => router.push({ pathname: "/recuperar", params: { email: email.trim() } })}
+        hitSlop={8}
+        style={styles.forgot}
+        testID="login-forgot-password-link"
+        accessibilityRole="link"
+      >
+        <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
+      </Pressable>
       <FormError message={error ?? authError} testID="login-error" />
       <PillButton label="Entrar" icon="log-in" onPress={submit} loading={loading} testID="login-submit-button" />
       <View style={styles.note}>
@@ -91,6 +100,8 @@ export default function LoginScreen() {
 }
 
 const useStyles = makeStyles((c) => ({
+  forgot: { alignSelf: "flex-end", minHeight: 36, justifyContent: "center", marginTop: -6 },
+  forgotText: { fontFamily: fonts.bodySemi, fontSize: 13.5, color: c.brandSecondary },
   note: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.infoCard, borderRadius: 12, padding: 10 },
   noteText: { flex: 1, fontFamily: fonts.body, fontSize: 12.5, color: c.onSurfaceSecondary, lineHeight: 17 },
 }));
